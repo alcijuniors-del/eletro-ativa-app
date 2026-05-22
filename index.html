@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Eletro Ativa - Solicitações</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="login-screen" id="login-screen">
+      <section class="login-card" aria-label="Acesso ao app">
+        <div class="login-visual" aria-hidden="true">
+          <div class="brand visual-brand">
+            <div class="brand-mark">EA</div>
+            <div>
+              <strong>Eletro Ativa</strong>
+              <span>Materiais Elétricos</span>
+            </div>
+          </div>
+          <div class="login-visual-copy">
+            <span class="energy-line"></span>
+            <h2>Gestão de solicitações com energia e controle.</h2>
+            <p>Fluxo rápido para gerentes enviarem demandas e acompanhamento centralizado pelo administrador.</p>
+          </div>
+          <div class="feature-strip">
+            <span>Quadros</span>
+            <span>Transformadores</span>
+            <span>Segurança</span>
+          </div>
+        </div>
+
+        <div class="login-content">
+          <div class="brand login-brand">
+            <div class="brand-mark" aria-hidden="true">EA</div>
+            <div>
+              <strong>Eletro Ativa</strong>
+              <span>Controle por perfil</span>
+            </div>
+          </div>
+
+          <form class="login-form" id="login-form">
+            <div>
+              <p class="eyebrow">Acesso restrito</p>
+              <h1>Entrar no app</h1>
+            </div>
+
+            <label>
+              Usuário
+              <input id="login-username" name="username" type="text" autocomplete="username" required />
+            </label>
+            <label>
+              Senha
+              <input id="login-password" name="password" type="password" autocomplete="current-password" required />
+            </label>
+
+            <p class="form-error hidden" id="login-error">Usuário ou senha inválidos.</p>
+
+            <button class="primary-button" type="submit">Entrar</button>
+          </form>
+
+          <div class="login-note">
+            <strong>Acesso administrativo</strong>
+            <span>Use o usuário admin e a senha configurada</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="app-shell hidden" id="app-shell">
+      <aside class="sidebar" aria-label="Navegação principal">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">EA</div>
+          <div>
+            <strong>Eletro Ativa</strong>
+            <span>Solicitações</span>
+          </div>
+        </div>
+
+        <div class="account-panel">
+          <span class="role-pill" id="current-user-role"></span>
+          <strong id="current-user-name"></strong>
+          <button class="ghost-button compact-button" id="logout-button" type="button">Sair</button>
+        </div>
+
+        <nav class="nav-list" data-admin-only aria-label="Filtros por status">
+          <button class="nav-item active" type="button" data-status="todas">
+            <span class="nav-icon" aria-hidden="true">□</span>
+            Todas
+            <span class="nav-count" id="count-todas">0</span>
+          </button>
+          <button class="nav-item" type="button" data-status="nova">
+            <span class="nav-icon" aria-hidden="true">+</span>
+            Novas
+            <span class="nav-count" id="count-nova">0</span>
+          </button>
+          <button class="nav-item" type="button" data-status="andamento">
+            <span class="nav-icon" aria-hidden="true">↻</span>
+            Em andamento
+            <span class="nav-count" id="count-andamento">0</span>
+          </button>
+          <button class="nav-item" type="button" data-status="resolvida">
+            <span class="nav-icon" aria-hidden="true">✓</span>
+            Resolvidas
+            <span class="nav-count" id="count-resolvida">0</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <strong>Energia que transforma.</strong>
+          <span>Dados e usuários centralizados no servidor</span>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="app-eyebrow">Painel das lojas</p>
+            <h1 id="app-title">Solicitações das lojas</h1>
+          </div>
+          <div class="topbar-actions">
+            <button class="ghost-button" id="users-button" type="button" data-admin-only>
+              <span aria-hidden="true">U</span>
+              Usuários
+            </button>
+            <button class="ghost-button" id="export-button" type="button" title="Exportar CSV" data-admin-only>
+              <span aria-hidden="true">⇩</span>
+              Exportar
+            </button>
+            <button class="primary-button" id="open-form-button" type="button" data-admin-only>
+              <span aria-hidden="true">+</span>
+              Nova solicitação
+            </button>
+          </div>
+        </header>
+
+        <section class="metrics" data-admin-only aria-label="Resumo das solicitações">
+          <article class="metric">
+            <span class="metric-label">Abertas</span>
+            <strong id="metric-open">0</strong>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Vencendo hoje</span>
+            <strong id="metric-today">0</strong>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Atrasadas</span>
+            <strong id="metric-overdue">0</strong>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Concluídas</span>
+            <strong id="metric-done">0</strong>
+          </article>
+        </section>
+
+        <section class="control-strip" data-admin-only aria-label="Busca e filtros">
+          <label class="search-field">
+            <span aria-hidden="true">⌕</span>
+            <input id="search-input" type="search" placeholder="Buscar por título, gerente, setor..." />
+          </label>
+          <label class="select-field">
+            Prioridade
+            <select id="priority-filter">
+              <option value="todas">Todas</option>
+              <option value="alta">Alta</option>
+              <option value="media">Média</option>
+              <option value="baixa">Baixa</option>
+            </select>
+          </label>
+          <label class="select-field">
+            Ordenar
+            <select id="sort-select">
+              <option value="prazo">Prazo</option>
+              <option value="prioridade">Prioridade</option>
+              <option value="recente">Mais recentes</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="manager-submit-panel hidden" id="manager-submit-panel" aria-label="Criar solicitação">
+          <div class="manager-submit-header">
+            <div>
+              <p class="eyebrow">Loja</p>
+              <h2>Nova solicitação</h2>
+            </div>
+            <span class="status-pill status-nova" id="manager-account-label"></span>
+          </div>
+
+          <form class="request-form inline-form" id="manager-request-form">
+            <div class="form-grid">
+              <label class="form-wide">
+                Título
+                <input name="title" type="text" required placeholder="Resumo da solicitação" />
+              </label>
+              <label>
+                Prioridade
+                <select name="priority">
+                  <option value="media">Média</option>
+                  <option value="alta">Alta</option>
+                  <option value="baixa">Baixa</option>
+                </select>
+                <span class="sla-hint" id="manager-sla-hint">Prazo automático: 3 dias</span>
+              </label>
+              <label>
+                Prazo de resposta
+                <input name="dueDate" type="date" required readonly />
+              </label>
+              <label class="form-wide">
+                Descrição
+                <textarea name="description" rows="6" required placeholder="Detalhe o pedido, contexto e resultado esperado."></textarea>
+              </label>
+            </div>
+
+            <div class="modal-actions">
+              <button class="primary-button" type="submit">
+                <span aria-hidden="true">+</span>
+                Enviar solicitação
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section class="main-grid" data-admin-only>
+          <div class="requests-panel" aria-label="Lista de solicitações">
+            <div class="panel-heading">
+              <h2>Fila</h2>
+              <span id="result-count">0 itens</span>
+            </div>
+            <div class="request-list" id="request-list"></div>
+            <div class="empty-state hidden" id="empty-state">
+              <strong>Nenhuma solicitação encontrada</strong>
+              <span>Ajuste os filtros ou registre uma nova demanda.</span>
+            </div>
+          </div>
+
+          <aside class="detail-panel" id="detail-panel" aria-label="Detalhes da solicitação">
+            <div class="detail-placeholder" id="detail-placeholder">
+              <strong>Selecione uma solicitação</strong>
+              <span>Os detalhes, ações e campo de resposta aparecem aqui.</span>
+            </div>
+
+            <div class="detail-content hidden" id="detail-content">
+              <div class="detail-header">
+                <div>
+                  <span class="status-pill" id="detail-status"></span>
+                  <h2 id="detail-title"></h2>
+                </div>
+                <button class="icon-button" id="delete-button" type="button" title="Excluir solicitação" aria-label="Excluir solicitação">
+                  ×
+                </button>
+              </div>
+
+              <dl class="detail-meta">
+                <div>
+                  <dt>Gerente</dt>
+                  <dd id="detail-manager"></dd>
+                </div>
+                <div>
+                  <dt>Setor</dt>
+                  <dd id="detail-department"></dd>
+                </div>
+                <div>
+                  <dt>Prioridade</dt>
+                  <dd id="detail-priority"></dd>
+                </div>
+                <div>
+                  <dt>Prazo</dt>
+                  <dd id="detail-due"></dd>
+                </div>
+              </dl>
+
+              <section class="detail-section">
+                <h3>Descrição</h3>
+                <p id="detail-description"></p>
+              </section>
+
+              <section class="detail-section">
+                <h3>Resposta ao gerente</h3>
+                <label class="response-box">
+                  <textarea id="response-input" rows="6" placeholder="Informe o que foi resolvido, evidências e próximos passos."></textarea>
+                </label>
+                <div class="detail-actions">
+                  <button class="ghost-button" id="start-button" type="button">
+                    <span aria-hidden="true">↻</span>
+                    Em andamento
+                  </button>
+                  <button class="primary-button" id="resolve-button" type="button">
+                    <span aria-hidden="true">✓</span>
+                    Enviar resposta
+                  </button>
+                </div>
+              </section>
+
+              <section class="detail-section">
+                <h3>Histórico</h3>
+                <ol class="history-list" id="history-list"></ol>
+              </section>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="modal" id="request-modal">
+      <form class="request-form" id="request-form" method="dialog">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Registro</p>
+            <h2>Nova solicitação</h2>
+          </div>
+          <button class="icon-button" id="close-form-button" type="button" aria-label="Fechar">×</button>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            Gerente
+            <input id="manager-input" name="manager" type="text" required placeholder="Nome do gerente ou loja" />
+          </label>
+          <label>
+            Setor
+            <input id="department-input" name="department" type="text" required placeholder="Ex.: Comercial" />
+          </label>
+          <label class="form-wide">
+            Título
+            <input id="title-input" name="title" type="text" required placeholder="Resumo da solicitação" />
+          </label>
+          <label>
+            Prioridade
+            <select id="priority-input" name="priority">
+              <option value="media">Média</option>
+              <option value="alta">Alta</option>
+              <option value="baixa">Baixa</option>
+            </select>
+            <span class="sla-hint" id="admin-sla-hint">Prazo automático: 3 dias</span>
+          </label>
+          <label>
+            Prazo de resposta
+            <input id="due-input" name="dueDate" type="date" required readonly />
+          </label>
+          <label class="form-wide">
+            Descrição
+            <textarea id="description-input" name="description" rows="5" required placeholder="Detalhe o pedido, contexto e resultado esperado."></textarea>
+          </label>
+        </div>
+
+        <div class="modal-actions">
+          <button class="ghost-button" id="cancel-form-button" type="button">Cancelar</button>
+          <button class="primary-button" type="submit">Salvar solicitação</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="user-modal">
+      <form class="request-form" id="user-form" method="dialog">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Acessos</p>
+            <h2>Usuários das lojas</h2>
+          </div>
+          <button class="icon-button" id="close-user-button" type="button" aria-label="Fechar">×</button>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            Nome
+            <input name="name" type="text" required placeholder="Nome da loja ou gerente" />
+          </label>
+          <label>
+            Setor
+            <input name="department" type="text" required placeholder="Ex.: Comercial" />
+          </label>
+          <label>
+            Usuário
+            <input name="username" type="text" required autocomplete="off" placeholder="Ex.: ana.comercial" />
+          </label>
+          <label>
+            WhatsApp
+            <input name="phone" type="tel" required placeholder="Ex.: 65999999999" />
+          </label>
+          <label>
+            Senha
+            <input name="password" type="password" required autocomplete="new-password" minlength="4" />
+          </label>
+        </div>
+
+        <div class="modal-actions">
+          <button class="ghost-button" id="cancel-user-button" type="button">Cancelar</button>
+          <button class="primary-button" type="submit">Criar usuário</button>
+        </div>
+
+        <section class="user-list-section">
+          <h3>Usuários cadastrados</h3>
+          <div class="user-list" id="user-list"></div>
+        </section>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: eletro-ativa-solicitacoes
+    runtime: node
+    plan: starter
+    buildCommand: npm install --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATA_DIR
+        value: /opt/render/project/src/storage
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_TO
+        sync: false
+      - key: WHATSAPP_API_VERSION
+        value: v23.0
+    disk:
+      name: solicitacoes-data
+      mountPath: /opt/render/project/src/storage
+      sizeGB: 1

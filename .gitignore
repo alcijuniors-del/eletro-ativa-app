@@ -1,0 +1,8 @@
+data/
+whatsapp.env
+.env
+.env.*
+!.env.production.example
+*.log
+*.zip
+app-preview.png
