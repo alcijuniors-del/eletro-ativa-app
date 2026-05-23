@@ -6,3 +6,5 @@ whatsapp.env
 *.log
 *.zip
 app-preview.png
+.deploy/
+public-repo.git/
