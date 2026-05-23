@@ -178,17 +178,14 @@ button {
 
 .brand-mark {
   position: relative;
-  display: grid;
+  display: block;
   width: 46px;
   height: 46px;
-  place-items: center;
   border: 1px solid rgba(255, 211, 61, 0.72);
   border-radius: 8px;
   background: #6f1bd1;
-  color: var(--yellow);
   box-shadow: 0 0 24px rgba(155, 57, 255, 0.52);
-  font-size: 0.82rem;
-  font-weight: 950;
+  object-fit: cover;
 }
 
 .brand-mark::after {
