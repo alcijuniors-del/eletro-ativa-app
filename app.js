@@ -70,7 +70,7 @@ let selectedId = null;
 let currentStatus = "todas";
 let searchTerm = "";
 let priorityFilter = "todas";
-let managerTab = "aguardando";
+let managerTab = "minhas";
 let toastTimeout;
 let stateRefreshTimer;
 
@@ -112,9 +112,11 @@ const elements = {
   managerHistoryPanel: document.querySelector("#manager-history-panel"),
   managerRequestList: document.querySelector("#manager-request-list"),
   managerRequestCount: document.querySelector("#manager-request-count"),
+  managerViewTitle: document.querySelector("#manager-view-title"),
   managerEmptyState: document.querySelector("#manager-empty-state"),
   managerRefreshButton: document.querySelector("#manager-refresh-button"),
   managerTabs: document.querySelectorAll("[data-manager-tab]"),
+  managerAllCount: document.querySelector("#manager-all-count"),
   managerWaitingCount: document.querySelector("#manager-waiting-count"),
   managerResolvedCount: document.querySelector("#manager-resolved-count"),
   userModal: document.querySelector("#user-modal"),
@@ -378,28 +380,46 @@ function render() {
 function renderManagerDashboard() {
   if (isAdmin()) return;
 
+  const allRequests = [...requests].sort(compareRequestsByPriorityAndPost);
   const waitingRequests = requests.filter((request) => request.status !== "resolvida");
   const resolvedRequests = requests.filter((request) => request.status === "resolvida");
-  const ownRequests = (managerTab === "resolvidas" ? resolvedRequests : waitingRequests).sort(
-    compareRequestsByPriorityAndPost,
-  );
+  const managerViews = {
+    minhas: {
+      title: "Minhas solicitações",
+      emptyTitle: "Nenhuma solicitação enviada",
+      emptyText: "Quando você enviar uma solicitação, ela aparece aqui com status e resposta.",
+      requests: allRequests,
+    },
+    aguardando: {
+      title: "Aguardando resolução",
+      emptyTitle: "Nenhuma solicitação aguardando resolução",
+      emptyText: "As solicitações que ainda não receberam resposta aparecem aqui.",
+      requests: [...waitingRequests].sort(compareRequestsByPriorityAndPost),
+    },
+    resolvidas: {
+      title: "Solicitações resolvidas",
+      emptyTitle: "Nenhuma solicitação resolvida",
+      emptyText: "Quando uma resposta for enviada pela administração, ela aparece nesta aba.",
+      requests: [...resolvedRequests].sort(compareRequestsByPriorityAndPost),
+    },
+  };
+  const activeView = managerViews[managerTab] || managerViews.minhas;
+  const ownRequests = activeView.requests;
 
   elements.managerTabs.forEach((button) => {
     button.classList.toggle("active", button.dataset.managerTab === managerTab);
   });
+  elements.managerAllCount.textContent = requests.length;
   elements.managerWaitingCount.textContent = waitingRequests.length;
   elements.managerResolvedCount.textContent = resolvedRequests.length;
+  elements.managerViewTitle.textContent = activeView.title;
   elements.managerRequestList.innerHTML = "";
   elements.managerRequestCount.textContent = `${ownRequests.length} ${
     ownRequests.length === 1 ? "item" : "itens"
   }`;
   elements.managerEmptyState.classList.toggle("hidden", ownRequests.length > 0);
-  elements.managerEmptyState.querySelector("strong").textContent =
-    managerTab === "resolvidas" ? "Nenhuma solicitação resolvida" : "Nenhuma solicitação aguardando resolução";
-  elements.managerEmptyState.querySelector("span").textContent =
-    managerTab === "resolvidas"
-      ? "Quando uma resposta for enviada pela administração, ela aparece nesta aba."
-      : "As novas solicitações enviadas por você aparecem nesta aba.";
+  elements.managerEmptyState.querySelector("strong").textContent = activeView.emptyTitle;
+  elements.managerEmptyState.querySelector("span").textContent = activeView.emptyText;
 
   ownRequests.forEach((request) => {
     const item = document.createElement("article");

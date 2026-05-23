@@ -224,27 +224,37 @@
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Acompanhamento</p>
-              <h2>Minhas solicitações</h2>
-            </div>
-            <div class="manager-history-actions">
-              <span id="manager-request-count">0 itens</span>
-              <button class="ghost-button compact-button" id="manager-refresh-button" type="button">Atualizar</button>
+              <h2 id="manager-view-title">Minhas solicitações</h2>
             </div>
           </div>
-          <div class="manager-tabs" role="tablist" aria-label="Status das minhas solicitações">
-            <button class="manager-tab active" type="button" data-manager-tab="aguardando">
-              Aguardando resolução
-              <span id="manager-waiting-count">0</span>
-            </button>
-            <button class="manager-tab" type="button" data-manager-tab="resolvidas">
-              Solicitações resolvidas
-              <span id="manager-resolved-count">0</span>
-            </button>
-          </div>
-          <div class="manager-request-list" id="manager-request-list"></div>
-          <div class="empty-state hidden" id="manager-empty-state">
-            <strong>Nenhuma solicitação enviada</strong>
-            <span>Quando você enviar uma solicitação, ela aparece aqui com status e resposta.</span>
+
+          <div class="manager-history-layout">
+            <nav class="manager-tabs" role="tablist" aria-label="Status das minhas solicitações">
+              <button class="manager-tab active" type="button" data-manager-tab="minhas">
+                Minhas solicitações
+                <span id="manager-all-count">0</span>
+              </button>
+              <button class="manager-tab" type="button" data-manager-tab="aguardando">
+                Aguardando resolução
+                <span id="manager-waiting-count">0</span>
+              </button>
+              <button class="manager-tab" type="button" data-manager-tab="resolvidas">
+                Solicitações resolvidas
+                <span id="manager-resolved-count">0</span>
+              </button>
+            </nav>
+
+            <div class="manager-history-content">
+              <div class="manager-history-actions">
+                <span id="manager-request-count">0 itens</span>
+                <button class="ghost-button compact-button" id="manager-refresh-button" type="button">Atualizar</button>
+              </div>
+              <div class="manager-request-list" id="manager-request-list"></div>
+              <div class="empty-state hidden" id="manager-empty-state">
+                <strong>Nenhuma solicitação enviada</strong>
+                <span>Quando você enviar uma solicitação, ela aparece aqui com status e resposta.</span>
+              </div>
+            </div>
           </div>
         </section>
 

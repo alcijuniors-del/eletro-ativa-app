@@ -691,7 +691,7 @@ textarea:focus {
 .manager-history-panel {
   display: grid;
   gap: 18px;
-  max-width: 860px;
+  max-width: 1040px;
   border: 1px solid rgba(195, 108, 255, 0.26);
   border-radius: 8px;
   background:
@@ -719,15 +719,30 @@ textarea:focus {
 .manager-history-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
   color: var(--muted);
   font-size: 0.86rem;
 }
 
+.manager-history-layout {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.manager-history-content {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
 .manager-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  position: sticky;
+  top: 18px;
 }
 
 .manager-tab {
@@ -741,6 +756,7 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.05);
   color: var(--muted);
   font-weight: 900;
+  text-align: left;
   padding: 10px 12px;
 }
 
@@ -1342,14 +1358,18 @@ textarea:focus {
   }
 
   .manager-submit-header,
-  .manager-tabs,
-  .manager-history-actions,
+  .manager-history-layout,
   .user-row {
     grid-template-columns: 1fr;
+  }
+
+  .manager-tabs {
+    position: static;
   }
 
   .manager-history-actions {
     align-items: stretch;
     flex-direction: column;
+    justify-content: stretch;
   }
 }
