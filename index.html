@@ -219,6 +219,24 @@
           </form>
         </section>
 
+        <section class="manager-history-panel hidden" id="manager-history-panel" aria-label="Minhas solicitações">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Acompanhamento</p>
+              <h2>Minhas solicitações</h2>
+            </div>
+            <div class="manager-history-actions">
+              <span id="manager-request-count">0 itens</span>
+              <button class="ghost-button compact-button" id="manager-refresh-button" type="button">Atualizar</button>
+            </div>
+          </div>
+          <div class="manager-request-list" id="manager-request-list"></div>
+          <div class="empty-state hidden" id="manager-empty-state">
+            <strong>Nenhuma solicitação enviada</strong>
+            <span>Quando você enviar uma solicitação, ela aparece aqui com status e resposta.</span>
+          </div>
+        </section>
+
         <section class="main-grid" data-admin-only>
           <div class="requests-panel" aria-label="Lista de solicitações">
             <div class="panel-heading">

@@ -33,6 +33,8 @@ const priorityWeight = {
   baixa: 3,
 };
 
+const stateRefreshIntervalMs = 15000;
+
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const daysFromToday = (days) => {
@@ -50,6 +52,7 @@ let searchTerm = "";
 let priorityFilter = "todas";
 let sortMode = "prazo";
 let toastTimeout;
+let stateRefreshTimer;
 
 const elements = {
   loginScreen: document.querySelector("#login-screen"),
@@ -87,6 +90,11 @@ const elements = {
   managerForm: document.querySelector("#manager-request-form"),
   managerSlaHint: document.querySelector("#manager-sla-hint"),
   managerAccountLabel: document.querySelector("#manager-account-label"),
+  managerHistoryPanel: document.querySelector("#manager-history-panel"),
+  managerRequestList: document.querySelector("#manager-request-list"),
+  managerRequestCount: document.querySelector("#manager-request-count"),
+  managerEmptyState: document.querySelector("#manager-empty-state"),
+  managerRefreshButton: document.querySelector("#manager-refresh-button"),
   userModal: document.querySelector("#user-modal"),
   userForm: document.querySelector("#user-form"),
   closeUserButton: document.querySelector("#close-user-button"),
@@ -131,12 +139,23 @@ async function loadSession() {
   try {
     const payload = await apiFetch("/api/state");
     applyState(payload);
+    renderCurrentView();
   } catch {
     currentUser = null;
     requests = [];
     users = [];
     selectedId = null;
   }
+}
+
+function renderCurrentView() {
+  if (!currentUser) return;
+  if (isAdmin()) {
+    render();
+    renderUsers();
+    return;
+  }
+  renderManagerDashboard();
 }
 
 function applyState(payload) {
@@ -187,6 +206,15 @@ function formatDate(value = "") {
   if (!value.includes("-")) return "Não informado";
   const [year, month, day] = value.split("-");
   return `${day}/${month}/${year}`;
+}
+
+function formatDateTime(value = "") {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "data não informada";
+  return date.toLocaleString("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
 }
 
 function responseDueDate(priority) {
@@ -279,16 +307,19 @@ function renderAuth() {
   elements.appShell.classList.toggle("hidden", !loggedIn);
 
   if (!loggedIn) {
+    stopStateRefresh();
     elements.loginUsername.focus();
     return;
   }
 
   const userIsAdmin = isAdmin();
+  startStateRefresh();
   elements.currentUserName.textContent = currentUser.name;
   elements.currentUserRole.textContent = roleLabels[currentUser.role];
   elements.currentUserRole.className = `role-pill role-${currentUser.role}`;
   elements.adminOnly.forEach((element) => element.classList.toggle("hidden", !userIsAdmin));
   elements.managerPanel.classList.toggle("hidden", userIsAdmin);
+  elements.managerHistoryPanel.classList.toggle("hidden", userIsAdmin);
 
   if (userIsAdmin) {
     elements.appEyebrow.textContent = "Painel das lojas";
@@ -299,10 +330,10 @@ function renderAuth() {
   }
 
   elements.appEyebrow.textContent = "Área da loja";
-  elements.appTitle.textContent = "Criar solicitação";
+  elements.appTitle.textContent = "Solicitações da loja";
   elements.managerAccountLabel.textContent = `${currentUser.name} · ${currentUser.department}`;
-  elements.managerForm.reset();
   applyResponseDeadline(elements.managerForm, elements.managerSlaHint);
+  renderManagerDashboard();
 }
 
 function render() {
@@ -311,6 +342,55 @@ function render() {
   renderMetrics();
   renderList();
   renderDetail();
+}
+
+function renderManagerDashboard() {
+  if (isAdmin()) return;
+
+  const ownRequests = [...requests].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  elements.managerRequestList.innerHTML = "";
+  elements.managerRequestCount.textContent = `${ownRequests.length} ${
+    ownRequests.length === 1 ? "item" : "itens"
+  }`;
+  elements.managerEmptyState.classList.toggle("hidden", ownRequests.length > 0);
+
+  ownRequests.forEach((request) => {
+    const item = document.createElement("article");
+    item.className = `manager-request-card priority-${request.priority}`;
+
+    const response = request.response
+      ? escapeHtml(request.response)
+      : "Ainda sem resposta. Quando a administração responder, a resposta aparece aqui automaticamente.";
+    const history = Array.isArray(request.history) ? request.history : [];
+
+    item.innerHTML = `
+      <div class="request-title-row">
+        <div>
+          <strong>${escapeHtml(request.title)}</strong>
+          <span class="manager-request-date">Enviada em ${formatDateTime(request.createdAt)}</span>
+        </div>
+        <span class="status-pill status-${request.status}">${statusLabels[request.status]}</span>
+      </div>
+      <p class="request-description">${escapeHtml(request.description)}</p>
+      <div class="request-meta">
+        <span class="chip priority-${request.priority}">${priorityLabels[request.priority]}</span>
+        <span class="chip">Prazo: ${formatDate(request.dueDate)}</span>
+        <span class="chip">${responseDeadlineLabel(request.priority)}</span>
+      </div>
+      <section class="manager-response-box">
+        <h3>Resposta</h3>
+        <p>${response}</p>
+      </section>
+      <details class="manager-history">
+        <summary>Histórico</summary>
+        <ol>
+          ${history.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}
+        </ol>
+      </details>
+    `;
+
+    elements.managerRequestList.append(item);
+  });
 }
 
 function renderCounts() {
@@ -455,9 +535,9 @@ async function addRequest(formData) {
 
   try {
     const result = await apiFetch("/api/requests", jsonRequest("POST", payload));
-    requests = isAdmin() ? result.requests : requests;
+    requests = result.requests;
     selectedId = isAdmin() ? result.request.id : selectedId;
-    renderAuth();
+    renderCurrentView();
     showNotificationResult(result.notification, "Solicitação registrada.");
     return true;
   } catch (error) {
@@ -604,7 +684,32 @@ async function logout() {
   requests = [];
   users = [];
   selectedId = null;
+  stopStateRefresh();
   renderAuth();
+}
+
+function startStateRefresh() {
+  if (stateRefreshTimer) return;
+  stateRefreshTimer = window.setInterval(refreshStateFromServer, stateRefreshIntervalMs);
+}
+
+function stopStateRefresh() {
+  if (!stateRefreshTimer) return;
+  window.clearInterval(stateRefreshTimer);
+  stateRefreshTimer = null;
+}
+
+async function refreshStateFromServer({ notify = false } = {}) {
+  if (!currentUser) return;
+
+  try {
+    const payload = await apiFetch("/api/state");
+    applyState(payload);
+    renderCurrentView();
+    if (notify) showToast("Painel atualizado.");
+  } catch (error) {
+    if (notify) showToast(error.message);
+  }
 }
 
 function openForm() {
@@ -800,6 +905,7 @@ function bindEvents() {
   elements.managerForm.elements.priority.addEventListener("change", () => {
     applyResponseDeadline(elements.managerForm, elements.managerSlaHint);
   });
+  elements.managerRefreshButton.addEventListener("click", () => refreshStateFromServer({ notify: true }));
 
   elements.openFormButton.addEventListener("click", openForm);
   elements.closeFormButton.addEventListener("click", closeForm);

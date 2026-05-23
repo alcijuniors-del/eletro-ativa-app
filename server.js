@@ -235,7 +235,10 @@ async function handleCreateRequest(request, response, data, currentUser) {
   sendJson(response, 201, {
     ok: true,
     request: taskRequest,
-    requests: currentUser.role === "admin" ? data.requests : [],
+    requests:
+      currentUser.role === "admin"
+        ? data.requests
+        : data.requests.filter((item) => item.createdBy === currentUser.id),
     notification,
   });
 }
@@ -403,11 +406,14 @@ async function notifyRequester(taskRequest) {
 function buildStatePayload(data, currentUser) {
   const user = publicUser(currentUser);
   const isAdmin = currentUser.role === "admin";
+  const visibleRequests = isAdmin
+    ? data.requests
+    : data.requests.filter((request) => request.createdBy === currentUser.id);
 
   return {
     ok: true,
     user,
-    requests: isAdmin ? data.requests : [],
+    requests: visibleRequests,
     users: isAdmin ? publicUsers(data.users) : [],
   };
 }
