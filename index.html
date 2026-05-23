@@ -166,14 +166,10 @@
               <option value="baixa">Baixa</option>
             </select>
           </label>
-          <label class="select-field">
-            Ordenar
-            <select id="sort-select">
-              <option value="prazo">Prazo</option>
-              <option value="prioridade">Prioridade</option>
-              <option value="recente">Mais recentes</option>
-            </select>
-          </label>
+          <div class="select-field fixed-order-field">
+            Ordem
+            <span class="fixed-order-label">Prioridade + postagem</span>
+          </div>
         </section>
 
         <section class="manager-submit-panel hidden" id="manager-submit-panel" aria-label="Criar solicitação">
@@ -208,6 +204,11 @@
                 Descrição
                 <textarea name="description" rows="6" required placeholder="Detalhe o pedido, contexto e resultado esperado."></textarea>
               </label>
+              <label class="form-wide file-field">
+                Imagens da solicitação
+                <input name="attachments" type="file" accept="image/*" multiple />
+                <span class="input-hint">Até 5 imagens. Elas serão anexadas ao pedido.</span>
+              </label>
             </div>
 
             <div class="modal-actions">
@@ -229,6 +230,16 @@
               <span id="manager-request-count">0 itens</span>
               <button class="ghost-button compact-button" id="manager-refresh-button" type="button">Atualizar</button>
             </div>
+          </div>
+          <div class="manager-tabs" role="tablist" aria-label="Status das minhas solicitações">
+            <button class="manager-tab active" type="button" data-manager-tab="aguardando">
+              Aguardando resolução
+              <span id="manager-waiting-count">0</span>
+            </button>
+            <button class="manager-tab" type="button" data-manager-tab="resolvidas">
+              Solicitações resolvidas
+              <span id="manager-resolved-count">0</span>
+            </button>
           </div>
           <div class="manager-request-list" id="manager-request-list"></div>
           <div class="empty-state hidden" id="manager-empty-state">
@@ -262,9 +273,15 @@
                   <span class="status-pill" id="detail-status"></span>
                   <h2 id="detail-title"></h2>
                 </div>
-                <button class="icon-button" id="delete-button" type="button" title="Excluir solicitação" aria-label="Excluir solicitação">
-                  ×
-                </button>
+                <div class="detail-header-actions">
+                  <button class="ghost-button compact-button" id="print-button" type="button">
+                    <span aria-hidden="true">▣</span>
+                    PDF
+                  </button>
+                  <button class="icon-button" id="delete-button" type="button" title="Excluir solicitação" aria-label="Excluir solicitação">
+                    ×
+                  </button>
+                </div>
               </div>
 
               <dl class="detail-meta">
@@ -291,11 +308,25 @@
                 <p id="detail-description"></p>
               </section>
 
+              <section class="detail-section hidden" id="detail-attachments-section">
+                <h3>Imagens da solicitação</h3>
+                <div class="attachment-grid" id="detail-attachments"></div>
+              </section>
+
               <section class="detail-section">
                 <h3>Resposta ao gerente</h3>
                 <label class="response-box">
                   <textarea id="response-input" rows="6" placeholder="Informe o que foi resolvido, evidências e próximos passos."></textarea>
                 </label>
+                <div class="response-attachments-block" id="response-attachments-block">
+                  <h4>Imagens da resposta</h4>
+                  <div class="attachment-grid" id="response-attachments"></div>
+                  <label class="file-field response-file-field">
+                    Anexar imagens na resposta
+                    <input id="response-attachments-input" type="file" accept="image/*" multiple />
+                    <span class="input-hint">As novas imagens serão adicionadas quando você enviar a resposta.</span>
+                  </label>
+                </div>
                 <div class="detail-actions">
                   <button class="ghost-button" id="start-button" type="button">
                     <span aria-hidden="true">↻</span>
@@ -357,6 +388,11 @@
           <label class="form-wide">
             Descrição
             <textarea id="description-input" name="description" rows="5" required placeholder="Detalhe o pedido, contexto e resultado esperado."></textarea>
+          </label>
+          <label class="form-wide file-field">
+            Imagens da solicitação
+            <input name="attachments" type="file" accept="image/*" multiple />
+            <span class="input-hint">Até 5 imagens. Elas serão anexadas ao pedido.</span>
           </label>
         </div>
 

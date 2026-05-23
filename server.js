@@ -17,6 +17,10 @@ const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 const WHATSAPP_API_VERSION = process.env.WHATSAPP_API_VERSION || "v23.0";
 const ADMIN_USERNAME = normalizeUsername(process.env.ADMIN_USERNAME || "admin");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
+const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "America/Cuiaba";
+const MAX_JSON_BODY_BYTES = 12 * 1024 * 1024;
+const MAX_ATTACHMENTS_PER_FIELD = 5;
+const MAX_ATTACHMENT_DATA_LENGTH = 3 * 1024 * 1024;
 
 const sessions = new Map();
 
@@ -42,6 +46,12 @@ const responseDeadlineDays = {
   alta: 1,
   media: 3,
   baixa: 7,
+};
+
+const priorityWeight = {
+  alta: 1,
+  media: 2,
+  baixa: 3,
 };
 
 const server = http.createServer(async (request, response) => {
@@ -106,7 +116,7 @@ async function handleApi(request, response, url) {
 
   if (request.method === "GET" && url.pathname === "/api/requests") {
     requireAdmin(currentUser);
-    sendJson(response, 200, { ok: true, requests: data.requests });
+    sendJson(response, 200, { ok: true, requests: sortRequests(data.requests) });
     return;
   }
 
@@ -220,6 +230,8 @@ async function handleCreateRequest(request, response, data, currentUser) {
     dueDate: responseDueDate(priority),
     status: "nova",
     response: "",
+    attachments: sanitizeAttachments(body.attachments),
+    responseAttachments: [],
     createdBy: currentUser.id,
     requesterPhone: isManager ? normalizePhone(currentUser.phone) : normalizePhone(body.requesterPhone),
     createdAt: now,
@@ -237,7 +249,7 @@ async function handleCreateRequest(request, response, data, currentUser) {
     request: taskRequest,
     requests:
       currentUser.role === "admin"
-        ? data.requests
+        ? sortRequests(data.requests)
         : data.requests.filter((item) => item.createdBy === currentUser.id),
     notification,
   });
@@ -257,6 +269,9 @@ async function handleUpdateRequest(request, response, data, currentUser, request
   const nextStatus = normalizeStatus(body.status || previous.status);
   const responseText =
     body.response === undefined ? previous.response : cleanText(body.response, previous.response);
+  const newResponseAttachments = Array.isArray(body.responseAttachments)
+    ? sanitizeAttachments(body.responseAttachments)
+    : [];
   const history = [...previous.history];
 
   if (nextStatus === "andamento" && previous.status !== "andamento") {
@@ -267,10 +282,23 @@ async function handleUpdateRequest(request, response, data, currentUser, request
     history.push(`Resposta enviada e solicitacao resolvida em ${formatDateTime(now)} por ${currentUser.name}`);
   }
 
+  if (newResponseAttachments.length > 0) {
+    history.push(
+      `${newResponseAttachments.length} imagem${newResponseAttachments.length === 1 ? "" : "ns"} anexada${
+        newResponseAttachments.length === 1 ? "" : "s"
+      } a resposta em ${formatDateTime(now)} por ${currentUser.name}`,
+    );
+  }
+
   const updatedRequest = {
     ...previous,
     status: nextStatus,
     response: responseText,
+    attachments: Array.isArray(previous.attachments) ? previous.attachments : [],
+    responseAttachments: [
+      ...(Array.isArray(previous.responseAttachments) ? previous.responseAttachments : []),
+      ...newResponseAttachments,
+    ],
     updatedAt: now,
     history,
   };
@@ -282,7 +310,7 @@ async function handleUpdateRequest(request, response, data, currentUser, request
   sendJson(response, 200, {
     ok: true,
     request: updatedRequest,
-    requests: data.requests,
+    requests: sortRequests(data.requests),
     notification,
   });
 }
@@ -297,7 +325,7 @@ async function handleDeleteRequest(response, data, requestId) {
   }
 
   await writeData(data);
-  sendJson(response, 200, { ok: true, requests: data.requests });
+  sendJson(response, 200, { ok: true, requests: sortRequests(data.requests) });
 }
 
 async function handleCreateUser(request, response, data) {
@@ -407,7 +435,7 @@ function buildStatePayload(data, currentUser) {
   const user = publicUser(currentUser);
   const isAdmin = currentUser.role === "admin";
   const visibleRequests = isAdmin
-    ? data.requests
+    ? sortRequests(data.requests)
     : data.requests.filter((request) => request.createdBy === currentUser.id);
 
   return {
@@ -573,9 +601,29 @@ function normalizeStatus(value) {
 }
 
 function responseDueDate(priority) {
-  const date = new Date();
+  const date = businessToday();
   date.setDate(date.getDate() + (responseDeadlineDays[priority] ?? responseDeadlineDays.media));
-  return date.toISOString().slice(0, 10);
+  if (date.getDay() === 0) {
+    date.setDate(date.getDate() + 1);
+  }
+  return toDateInputValue(date);
+}
+
+function businessToday() {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: BUSINESS_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return new Date(Number(values.year), Number(values.month) - 1, Number(values.day), 12, 0, 0, 0);
+  } catch {
+    const fallback = new Date();
+    fallback.setHours(12, 0, 0, 0);
+    return fallback;
+  }
 }
 
 function sanitizeTaskRequest(request = {}) {
@@ -588,7 +636,56 @@ function sanitizeTaskRequest(request = {}) {
     description: cleanText(request.description, ""),
     response: cleanText(request.response, ""),
     requesterPhone: normalizePhone(request.requesterPhone),
+    attachments: sanitizeAttachments(request.attachments),
+    responseAttachments: sanitizeAttachments(request.responseAttachments),
   };
+}
+
+function sanitizeAttachments(value = []) {
+  if (!Array.isArray(value)) return [];
+
+  return value.slice(0, MAX_ATTACHMENTS_PER_FIELD).map((attachment) => {
+    const dataUrl = String(attachment?.dataUrl || "");
+    const type = String(attachment?.type || "");
+
+    if (!dataUrl) {
+      return null;
+    }
+
+    if (dataUrl.length > MAX_ATTACHMENT_DATA_LENGTH) {
+      const error = new Error("Imagem muito grande. Reduza a imagem e tente novamente.");
+      error.status = 400;
+      throw error;
+    }
+
+    if (!/^data:image\/(png|jpe?g|webp);base64,[a-z0-9+/=]+$/i.test(dataUrl)) {
+      const error = new Error("Anexo invalido. Envie apenas imagens PNG, JPG ou WEBP.");
+      error.status = 400;
+      throw error;
+    }
+
+    return {
+      id: cleanText(attachment.id, createId("attachment")).slice(0, 80),
+      name: cleanText(attachment.name, "imagem").slice(0, 120),
+      type: type.startsWith("image/") ? type : dataUrl.slice(5, dataUrl.indexOf(";")),
+      size: Number.isFinite(Number(attachment.size)) ? Number(attachment.size) : 0,
+      dataUrl,
+      createdAt: cleanText(attachment.createdAt, new Date().toISOString()),
+    };
+  }).filter(Boolean);
+}
+
+function sortRequests(items) {
+  return [...items].sort((left, right) => {
+    const priorityDiff =
+      (priorityWeight[left.priority] || 99) - (priorityWeight[right.priority] || 99);
+    if (priorityDiff !== 0) return priorityDiff;
+
+    const createdDiff = new Date(right.createdAt || 0) - new Date(left.createdAt || 0);
+    if (createdDiff !== 0) return createdDiff;
+
+    return String(right.id || "").localeCompare(String(left.id || ""));
+  });
 }
 
 function cleanText(value, fallback) {
@@ -604,6 +701,7 @@ function formatDateTime(value) {
 }
 
 function buildWhatsAppMessage(request) {
+  const attachmentCount = Array.isArray(request.attachments) ? request.attachments.length : 0;
   return [
     "Nova solicitacao recebida - Eletro Ativa",
     "",
@@ -614,10 +712,12 @@ function buildWhatsAppMessage(request) {
     `Prazo de resposta: ${formatDate(request.dueDate)}`,
     "",
     `Descricao: ${request.description}`,
+    attachmentCount > 0 ? `Anexos no app: ${attachmentCount} imagem${attachmentCount === 1 ? "" : "ns"}` : "",
   ].join("\n");
 }
 
 function buildRequesterResponseMessage(request) {
+  const attachmentCount = Array.isArray(request.responseAttachments) ? request.responseAttachments.length : 0;
   return [
     "Resposta da sua solicitacao - Eletro Ativa",
     "",
@@ -625,6 +725,7 @@ function buildRequesterResponseMessage(request) {
     "Status: Resolvida",
     "",
     `Resposta: ${request.response}`,
+    attachmentCount > 0 ? `Anexos da resposta no app: ${attachmentCount} imagem${attachmentCount === 1 ? "" : "ns"}` : "",
   ].join("\n");
 }
 
@@ -632,6 +733,13 @@ function formatDate(value) {
   if (!value || !value.includes("-")) return "Nao informado";
   const [year, month, day] = value.split("-");
   return `${day}/${month}/${year}`;
+}
+
+function toDateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function readWhatsAppConfig(to, toLabel) {
@@ -755,8 +863,10 @@ async function readJsonBody(request) {
 
   for await (const chunk of request) {
     raw += chunk;
-    if (raw.length > 1024 * 1024) {
-      throw new Error("Payload muito grande");
+    if (raw.length > MAX_JSON_BODY_BYTES) {
+      const error = new Error("Payload muito grande");
+      error.status = 413;
+      throw error;
     }
   }
 

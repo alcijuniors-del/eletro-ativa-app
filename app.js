@@ -34,13 +34,27 @@ const priorityWeight = {
 };
 
 const stateRefreshIntervalMs = 15000;
+const maxAttachmentFiles = 5;
+const maxImageDimension = 1600;
+const imageCompressionQuality = 0.84;
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const toDateInputValue = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const todayIso = () => toDateInputValue(new Date());
 
 const daysFromToday = (days) => {
   const date = new Date();
+  date.setHours(12, 0, 0, 0);
   date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  if (date.getDay() === 0) {
+    date.setDate(date.getDate() + 1);
+  }
+  return toDateInputValue(date);
 };
 
 let requests = [];
@@ -50,7 +64,7 @@ let selectedId = null;
 let currentStatus = "todas";
 let searchTerm = "";
 let priorityFilter = "todas";
-let sortMode = "prazo";
+let managerTab = "aguardando";
 let toastTimeout;
 let stateRefreshTimer;
 
@@ -73,7 +87,6 @@ const elements = {
   resultCount: document.querySelector("#result-count"),
   searchInput: document.querySelector("#search-input"),
   priorityFilter: document.querySelector("#priority-filter"),
-  sortSelect: document.querySelector("#sort-select"),
   openFormButton: document.querySelector("#open-form-button"),
   exportButton: document.querySelector("#export-button"),
   usersButton: document.querySelector("#users-button"),
@@ -95,6 +108,9 @@ const elements = {
   managerRequestCount: document.querySelector("#manager-request-count"),
   managerEmptyState: document.querySelector("#manager-empty-state"),
   managerRefreshButton: document.querySelector("#manager-refresh-button"),
+  managerTabs: document.querySelectorAll("[data-manager-tab]"),
+  managerWaitingCount: document.querySelector("#manager-waiting-count"),
+  managerResolvedCount: document.querySelector("#manager-resolved-count"),
   userModal: document.querySelector("#user-modal"),
   userForm: document.querySelector("#user-form"),
   closeUserButton: document.querySelector("#close-user-button"),
@@ -109,10 +125,16 @@ const elements = {
   detailPriority: document.querySelector("#detail-priority"),
   detailDue: document.querySelector("#detail-due"),
   detailDescription: document.querySelector("#detail-description"),
+  detailAttachmentsSection: document.querySelector("#detail-attachments-section"),
+  detailAttachments: document.querySelector("#detail-attachments"),
   responseInput: document.querySelector("#response-input"),
+  responseAttachmentsBlock: document.querySelector("#response-attachments-block"),
+  responseAttachments: document.querySelector("#response-attachments"),
+  responseAttachmentsInput: document.querySelector("#response-attachments-input"),
   historyList: document.querySelector("#history-list"),
   startButton: document.querySelector("#start-button"),
   resolveButton: document.querySelector("#resolve-button"),
+  printButton: document.querySelector("#print-button"),
   deleteButton: document.querySelector("#delete-button"),
   toast: document.querySelector("#toast"),
   metrics: {
@@ -288,17 +310,17 @@ function filteredRequests() {
         `${request.title} ${request.manager} ${request.department} ${request.description}`,
       ).includes(term);
     })
-    .sort((a, b) => {
-      if (sortMode === "prioridade") {
-        return priorityWeight[a.priority] - priorityWeight[b.priority];
-      }
+    .sort(compareRequestsByPriorityAndPost);
+}
 
-      if (sortMode === "recente") {
-        return new Date(b.createdAt) - new Date(a.createdAt);
-      }
+function compareRequestsByPriorityAndPost(a, b) {
+  const priorityDiff = (priorityWeight[a.priority] || 99) - (priorityWeight[b.priority] || 99);
+  if (priorityDiff !== 0) return priorityDiff;
 
-      return a.dueDate.localeCompare(b.dueDate);
-    });
+  const createdDiff = new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+  if (createdDiff !== 0) return createdDiff;
+
+  return String(b.id || "").localeCompare(String(a.id || ""));
 }
 
 function renderAuth() {
@@ -347,12 +369,28 @@ function render() {
 function renderManagerDashboard() {
   if (isAdmin()) return;
 
-  const ownRequests = [...requests].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const waitingRequests = requests.filter((request) => request.status !== "resolvida");
+  const resolvedRequests = requests.filter((request) => request.status === "resolvida");
+  const ownRequests = (managerTab === "resolvidas" ? resolvedRequests : waitingRequests).sort(
+    compareRequestsByPriorityAndPost,
+  );
+
+  elements.managerTabs.forEach((button) => {
+    button.classList.toggle("active", button.dataset.managerTab === managerTab);
+  });
+  elements.managerWaitingCount.textContent = waitingRequests.length;
+  elements.managerResolvedCount.textContent = resolvedRequests.length;
   elements.managerRequestList.innerHTML = "";
   elements.managerRequestCount.textContent = `${ownRequests.length} ${
     ownRequests.length === 1 ? "item" : "itens"
   }`;
   elements.managerEmptyState.classList.toggle("hidden", ownRequests.length > 0);
+  elements.managerEmptyState.querySelector("strong").textContent =
+    managerTab === "resolvidas" ? "Nenhuma solicitação resolvida" : "Nenhuma solicitação aguardando resolução";
+  elements.managerEmptyState.querySelector("span").textContent =
+    managerTab === "resolvidas"
+      ? "Quando uma resposta for enviada pela administração, ela aparece nesta aba."
+      : "As novas solicitações enviadas por você aparecem nesta aba.";
 
   ownRequests.forEach((request) => {
     const item = document.createElement("article");
@@ -362,6 +400,10 @@ function renderManagerDashboard() {
       ? escapeHtml(request.response)
       : "Ainda sem resposta. Quando a administração responder, a resposta aparece aqui automaticamente.";
     const history = Array.isArray(request.history) ? request.history : [];
+    const attachments = Array.isArray(request.attachments) ? request.attachments : [];
+    const responseAttachments = Array.isArray(request.responseAttachments)
+      ? request.responseAttachments
+      : [];
 
     item.innerHTML = `
       <div class="request-title-row">
@@ -377,9 +419,11 @@ function renderManagerDashboard() {
         <span class="chip">Prazo: ${formatDate(request.dueDate)}</span>
         <span class="chip">${responseDeadlineLabel(request.priority)}</span>
       </div>
+      ${attachmentsMarkup(attachments, "Imagens da solicitação")}
       <section class="manager-response-box">
         <h3>Resposta</h3>
         <p>${response}</p>
+        ${attachmentsMarkup(responseAttachments, "Imagens da resposta")}
       </section>
       <details class="manager-history">
         <summary>Histórico</summary>
@@ -387,6 +431,12 @@ function renderManagerDashboard() {
           ${history.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}
         </ol>
       </details>
+      <div class="manager-card-actions">
+        <button class="ghost-button compact-button" type="button" data-print-request="${escapeHtml(request.id)}">
+          <span aria-hidden="true">▣</span>
+          PDF
+        </button>
+      </div>
     `;
 
     elements.managerRequestList.append(item);
@@ -439,6 +489,9 @@ function renderList() {
     const dueLabel = isOverdue(request)
       ? `Atrasada: ${formatDate(request.dueDate)}`
       : `${formatDate(request.dueDate)} · ${responseDeadlineLabel(request.priority)}`;
+    const attachmentCount =
+      (Array.isArray(request.attachments) ? request.attachments.length : 0) +
+      (Array.isArray(request.responseAttachments) ? request.responseAttachments.length : 0);
 
     button.innerHTML = `
       <div class="request-title-row">
@@ -451,6 +504,7 @@ function renderList() {
         <span class="chip">${escapeHtml(request.department)}</span>
         <span class="chip priority-${request.priority}">${priorityLabels[request.priority]}</span>
         <span class="${dueChipClass}">${dueLabel}</span>
+        ${attachmentCount ? `<span class="chip">${attachmentCount} imagem${attachmentCount === 1 ? "" : "ns"}</span>` : ""}
       </div>
     `;
 
@@ -481,6 +535,17 @@ function renderDetail() {
     isOverdue(request) ? " · atrasada" : ` · ${responseDeadlineLabel(request.priority)}`
   }`;
   elements.detailDescription.textContent = request.description;
+  renderAttachmentGrid(elements.detailAttachments, request.attachments);
+  elements.detailAttachmentsSection.classList.toggle(
+    "hidden",
+    !Array.isArray(request.attachments) || request.attachments.length === 0,
+  );
+  renderAttachmentGrid(elements.responseAttachments, request.responseAttachments);
+  elements.responseAttachmentsBlock.classList.toggle(
+    "has-images",
+    Array.isArray(request.responseAttachments) && request.responseAttachments.length > 0,
+  );
+  elements.responseAttachmentsInput.value = "";
   elements.responseInput.value = request.response;
   elements.startButton.disabled = request.status === "andamento";
   elements.startButton.innerHTML =
@@ -522,18 +587,145 @@ function renderUsers() {
   });
 }
 
-async function addRequest(formData) {
-  const payload = {
-    manager: formData.get("manager")?.trim() ?? "",
-    department: formData.get("department")?.trim() ?? "",
-    title: formData.get("title").trim(),
-    description: formData.get("description").trim(),
-    priority: formData.get("priority"),
+function attachmentsMarkup(attachments = [], title = "Imagens") {
+  if (!Array.isArray(attachments) || attachments.length === 0) return "";
+
+  return `
+    <div class="attachment-block">
+      <h4>${escapeHtml(title)}</h4>
+      <div class="attachment-grid">
+        ${attachments.map(attachmentMarkup).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function attachmentMarkup(attachment) {
+  return `
+    <a class="attachment-thumb" href="${escapeHtml(attachment.dataUrl)}" target="_blank" rel="noreferrer">
+      <img src="${escapeHtml(attachment.dataUrl)}" alt="${escapeHtml(attachment.name || "Imagem anexada")}" />
+      <span>${escapeHtml(attachment.name || "Imagem")}</span>
+    </a>
+  `;
+}
+
+function renderAttachmentGrid(container, attachments = []) {
+  const items = Array.isArray(attachments) ? attachments : [];
+  container.innerHTML = items.length
+    ? items.map(attachmentMarkup).join("")
+    : '<p class="muted-line">Nenhuma imagem anexada.</p>';
+}
+
+async function attachmentsFromForm(formData, fieldName = "attachments") {
+  const files = formData
+    .getAll(fieldName)
+    .filter((file) => file instanceof File && file.size > 0);
+
+  if (files.length > maxAttachmentFiles) {
+    throw new Error(`Envie no máximo ${maxAttachmentFiles} imagens por vez.`);
+  }
+
+  return Promise.all(files.map(fileToAttachment));
+}
+
+async function attachmentsFromInput(input) {
+  const files = Array.from(input?.files || []);
+
+  if (files.length > maxAttachmentFiles) {
+    throw new Error(`Envie no máximo ${maxAttachmentFiles} imagens por vez.`);
+  }
+
+  return Promise.all(files.map(fileToAttachment));
+}
+
+async function fileToAttachment(file) {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Anexe apenas imagens.");
+  }
+
+  const compressed = await compressImage(file);
+  return {
+    id: createClientId("attachment"),
+    name: file.name || "imagem.jpg",
+    type: compressed.type,
+    size: compressed.size,
+    dataUrl: compressed.dataUrl,
+    createdAt: new Date().toISOString(),
   };
+}
 
-  showToast("Salvando solicitação no servidor...");
+async function compressImage(file) {
+  const image = await loadImage(file);
+  const scale = Math.min(1, maxImageDimension / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement("canvas");
 
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext("2d").drawImage(image, 0, 0, width, height);
+
+  const blob = await new Promise((resolve) => {
+    canvas.toBlob(resolve, "image/jpeg", imageCompressionQuality);
+  });
+
+  if (!blob) {
+    throw new Error("Não foi possível preparar a imagem.");
+  }
+
+  return {
+    type: "image/jpeg",
+    size: blob.size,
+    dataUrl: await blobToDataUrl(blob),
+  };
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Não foi possível ler uma das imagens."));
+    };
+    image.src = url;
+  });
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Não foi possível anexar a imagem."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function createClientId(prefix) {
+  if (window.crypto?.randomUUID) {
+    return `${prefix}-${window.crypto.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function addRequest(formData) {
   try {
+    const attachments = await attachmentsFromForm(formData);
+    const payload = {
+      manager: formData.get("manager")?.trim() ?? "",
+      department: formData.get("department")?.trim() ?? "",
+      title: formData.get("title").trim(),
+      description: formData.get("description").trim(),
+      priority: formData.get("priority"),
+      attachments,
+    };
+
+    showToast("Salvando solicitação no servidor...");
     const result = await apiFetch("/api/requests", jsonRequest("POST", payload));
     requests = result.requests;
     selectedId = isAdmin() ? result.request.id : selectedId;
@@ -585,13 +777,20 @@ async function resolveSelected() {
     return;
   }
 
-  await updateSelected(
-    {
-      status: "resolvida",
-      response,
-    },
-    "Resposta salva.",
-  );
+  try {
+    const responseAttachments = await attachmentsFromInput(elements.responseAttachmentsInput);
+
+    await updateSelected(
+      {
+        status: "resolvida",
+        response,
+        responseAttachments,
+      },
+      "Resposta salva.",
+    );
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 async function deleteSelected() {
@@ -654,6 +853,188 @@ function exportCsv() {
   link.click();
   URL.revokeObjectURL(url);
   showToast("CSV exportado.");
+}
+
+function printSelectedRequest() {
+  if (!selectedId) return;
+  printRequestPdf(selectedId);
+}
+
+function printRequestPdf(requestId) {
+  const request = requests.find((item) => item.id === requestId);
+  if (!request) {
+    showToast("Solicitação não encontrada para impressão.");
+    return;
+  }
+
+  const printWindow = window.open("", "_blank", "width=920,height=720");
+  if (!printWindow) {
+    showToast("Permita pop-ups para gerar a impressão em PDF.");
+    return;
+  }
+
+  printWindow.document.write(printableRequestHtml(request));
+  printWindow.document.close();
+  printWindow.focus();
+  window.setTimeout(() => {
+    printWindow.print();
+  }, 500);
+}
+
+function printableRequestHtml(request) {
+  const attachments = Array.isArray(request.attachments) ? request.attachments : [];
+  const responseAttachments = Array.isArray(request.responseAttachments) ? request.responseAttachments : [];
+  const generatedAt = new Date().toLocaleString("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+
+  return `<!doctype html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8" />
+        <title>Solicitação - ${escapeHtml(request.title)}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            background: #f4f1f8;
+            color: #1f1728;
+            font-family: Arial, Helvetica, sans-serif;
+            line-height: 1.45;
+          }
+          main {
+            width: min(860px, calc(100vw - 32px));
+            margin: 24px auto;
+            background: #fff;
+            border: 1px solid #ddd4e8;
+            border-radius: 8px;
+            padding: 28px;
+          }
+          header {
+            display: flex;
+            justify-content: space-between;
+            gap: 18px;
+            border-bottom: 3px solid #6d28d9;
+            padding-bottom: 18px;
+          }
+          h1, h2, h3, p { margin-top: 0; }
+          h1 { margin-bottom: 6px; font-size: 26px; }
+          h2 { margin: 22px 0 10px; font-size: 18px; color: #4c1d95; }
+          .brand { color: #4c1d95; font-weight: 900; text-align: right; }
+          .meta {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+          }
+          .box {
+            border: 1px solid #e5dff0;
+            border-radius: 8px;
+            padding: 10px 12px;
+          }
+          .box span {
+            display: block;
+            color: #64566f;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+          }
+          .box strong { display: block; margin-top: 4px; }
+          .text-box {
+            white-space: pre-wrap;
+            border: 1px solid #e5dff0;
+            border-radius: 8px;
+            padding: 12px;
+          }
+          .images {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+          }
+          figure {
+            margin: 0;
+            break-inside: avoid;
+          }
+          img {
+            width: 100%;
+            max-height: 300px;
+            object-fit: contain;
+            border: 1px solid #e5dff0;
+            border-radius: 8px;
+            background: #faf8ff;
+          }
+          figcaption {
+            margin-top: 5px;
+            color: #64566f;
+            font-size: 12px;
+          }
+          footer {
+            margin-top: 24px;
+            border-top: 1px solid #e5dff0;
+            padding-top: 12px;
+            color: #64566f;
+            font-size: 12px;
+          }
+          @media print {
+            body { background: #fff; }
+            main { width: 100%; margin: 0; border: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <main>
+          <header>
+            <div>
+              <h1>${escapeHtml(request.title)}</h1>
+              <p>Solicitação registrada em ${escapeHtml(formatDateTime(request.createdAt))}</p>
+            </div>
+            <div class="brand">Eletro Ativa<br />Materiais Elétricos</div>
+          </header>
+
+          <section class="meta">
+            <div class="box"><span>Gerente/Loja</span><strong>${escapeHtml(request.manager)}</strong></div>
+            <div class="box"><span>Setor</span><strong>${escapeHtml(request.department)}</strong></div>
+            <div class="box"><span>Prioridade</span><strong>${escapeHtml(priorityLabels[request.priority])}</strong></div>
+            <div class="box"><span>Prazo</span><strong>${escapeHtml(formatDate(request.dueDate))}</strong></div>
+            <div class="box"><span>Status</span><strong>${escapeHtml(statusLabels[request.status])}</strong></div>
+            <div class="box"><span>Emitido em</span><strong>${escapeHtml(generatedAt)}</strong></div>
+          </section>
+
+          <h2>Descrição</h2>
+          <div class="text-box">${escapeHtml(request.description)}</div>
+
+          ${printableImages(attachments, "Imagens da solicitação")}
+
+          <h2>Resposta</h2>
+          <div class="text-box">${escapeHtml(request.response || "Ainda sem resposta.")}</div>
+
+          ${printableImages(responseAttachments, "Imagens da resposta")}
+
+          <footer>Documento gerado pelo app de solicitações Eletro Ativa.</footer>
+        </main>
+      </body>
+    </html>`;
+}
+
+function printableImages(attachments, title) {
+  if (!attachments.length) return "";
+
+  return `
+    <h2>${escapeHtml(title)}</h2>
+    <div class="images">
+      ${attachments
+        .map(
+          (attachment) => `
+            <figure>
+              <img src="${escapeHtml(attachment.dataUrl)}" alt="${escapeHtml(attachment.name || "Imagem anexada")}" />
+              <figcaption>${escapeHtml(attachment.name || "Imagem")}</figcaption>
+            </figure>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
 }
 
 async function handleLogin(event) {
@@ -893,11 +1274,6 @@ function bindEvents() {
     render();
   });
 
-  elements.sortSelect.addEventListener("change", (event) => {
-    sortMode = event.target.value;
-    render();
-  });
-
   elements.priorityInput.addEventListener("change", () => {
     applyResponseDeadline(elements.form, elements.adminSlaHint);
   });
@@ -906,6 +1282,17 @@ function bindEvents() {
     applyResponseDeadline(elements.managerForm, elements.managerSlaHint);
   });
   elements.managerRefreshButton.addEventListener("click", () => refreshStateFromServer({ notify: true }));
+  elements.managerTabs.forEach((button) => {
+    button.addEventListener("click", () => {
+      managerTab = button.dataset.managerTab;
+      renderManagerDashboard();
+    });
+  });
+  elements.managerRequestList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-print-request]");
+    if (!button) return;
+    printRequestPdf(button.dataset.printRequest);
+  });
 
   elements.openFormButton.addEventListener("click", openForm);
   elements.closeFormButton.addEventListener("click", closeForm);
@@ -916,6 +1303,7 @@ function bindEvents() {
   elements.cancelUserButton.addEventListener("click", closeUserModal);
   elements.startButton.addEventListener("click", setStatusInProgress);
   elements.resolveButton.addEventListener("click", resolveSelected);
+  elements.printButton.addEventListener("click", printSelectedRequest);
   elements.deleteButton.addEventListener("click", deleteSelected);
   elements.managerForm.addEventListener("submit", submitManagerRequest);
 

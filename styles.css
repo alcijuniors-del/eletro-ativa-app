@@ -621,6 +621,21 @@ h3 {
   font-weight: 800;
 }
 
+.fixed-order-field {
+  align-self: stretch;
+}
+
+.fixed-order-label {
+  display: grid;
+  min-height: 44px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(10, 9, 14, 0.72);
+  color: #fff;
+  padding: 10px 12px;
+}
+
 .sla-hint {
   color: #ffc078;
   font-size: 0.78rem;
@@ -642,6 +657,11 @@ input,
 select {
   min-height: 44px;
   padding: 10px 12px;
+}
+
+input[type="file"] {
+  min-height: auto;
+  padding: 12px;
 }
 
 textarea {
@@ -705,6 +725,43 @@ textarea:focus {
   gap: 10px;
   color: var(--muted);
   font-size: 0.86rem;
+}
+
+.manager-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.manager-tab {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-weight: 900;
+  padding: 10px 12px;
+}
+
+.manager-tab.active {
+  border-color: rgba(195, 108, 255, 0.72);
+  background: rgba(155, 57, 255, 0.18);
+  color: #fff;
+  box-shadow: var(--glow-purple);
+}
+
+.manager-tab span {
+  min-width: 26px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  padding: 2px 7px;
+  text-align: center;
+  font-size: 0.78rem;
 }
 
 .manager-request-list {
@@ -782,6 +839,11 @@ textarea:focus {
   padding-left: 20px;
 }
 
+.manager-card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .inline-form {
   padding: 0;
 }
@@ -816,6 +878,12 @@ textarea:focus {
 
 .panel-heading {
   padding: 4px 2px 12px;
+}
+
+.detail-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .request-list {
@@ -973,6 +1041,75 @@ textarea:focus {
   color: #d8cee8;
   line-height: 1.55;
   white-space: pre-wrap;
+}
+
+.input-hint,
+.muted-line {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.file-field {
+  border: 1px dashed rgba(195, 108, 255, 0.34);
+  border-radius: 8px;
+  background: rgba(155, 57, 255, 0.08);
+  padding: 12px;
+}
+
+.attachment-block {
+  display: grid;
+  gap: 10px;
+}
+
+.attachment-block h4,
+.response-attachments-block h4 {
+  margin: 0;
+  color: #fff;
+  font-size: 0.86rem;
+}
+
+.attachment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 10px;
+}
+
+.attachment-thumb {
+  display: grid;
+  gap: 7px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  text-decoration: none;
+  padding: 8px;
+}
+
+.attachment-thumb img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.attachment-thumb span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.response-attachments-block {
+  display: grid;
+  gap: 10px;
+}
+
+.response-file-field {
+  margin-top: 2px;
 }
 
 .history-list {
@@ -1201,6 +1338,7 @@ textarea:focus {
   }
 
   .manager-submit-header,
+  .manager-tabs,
   .manager-history-actions,
   .user-row {
     grid-template-columns: 1fr;
