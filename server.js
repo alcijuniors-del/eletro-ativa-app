@@ -42,6 +42,12 @@ const priorityLabels = {
   baixa: "Baixa - 7 dias",
 };
 
+const unitLabels = {
+  SPZ: "SPZ",
+  CNP: "CNP",
+  CORP: "CORP",
+};
+
 const responseDeadlineDays = {
   alta: 1,
   media: 3,
@@ -151,6 +157,12 @@ async function handleApi(request, response, url) {
   }
 
   const userMatch = url.pathname.match(/^\/api\/users\/([^/]+)$/);
+  if (userMatch && request.method === "PATCH") {
+    requireAdmin(currentUser);
+    await handleUpdateUser(request, response, data, userMatch[1]);
+    return;
+  }
+
   if (userMatch && request.method === "DELETE") {
     requireAdmin(currentUser);
     await handleDeleteUser(response, data, userMatch[1]);
@@ -346,6 +358,7 @@ async function handleCreateUser(request, response, data) {
     id: createId("user"),
     name: cleanText(body.name, "Gerente"),
     department: cleanText(body.department, "Loja"),
+    unit: normalizeUnit(body.unit),
     username,
     phone: normalizePhone(body.phone),
     passwordHash: hashPassword(cleanText(body.password, "1234")),
@@ -356,6 +369,51 @@ async function handleCreateUser(request, response, data) {
   data.users = [...data.users, user];
   await writeData(data);
   sendJson(response, 201, { ok: true, user: publicUser(user), users: publicUsers(data.users) });
+}
+
+async function handleUpdateUser(request, response, data, userId) {
+  const body = await readJsonBody(request);
+  const index = data.users.findIndex((item) => item.id === userId);
+
+  if (index === -1 || data.users[index].role === "admin") {
+    sendJson(response, 400, { ok: false, error: "Usuario nao pode ser editado." });
+    return;
+  }
+
+  const username = normalizeUsername(body.username);
+
+  if (!username) {
+    sendJson(response, 400, { ok: false, error: "Informe um usuario." });
+    return;
+  }
+
+  const duplicate = data.users.some(
+    (user) => user.id !== userId && normalizeUsername(user.username) === username,
+  );
+
+  if (duplicate) {
+    sendJson(response, 409, { ok: false, error: "Este usuario ja existe." });
+    return;
+  }
+
+  const previous = data.users[index];
+  const nextUser = {
+    ...previous,
+    name: cleanText(body.name, previous.name),
+    department: cleanText(body.department, previous.department),
+    unit: normalizeUnit(body.unit || previous.unit),
+    username,
+    phone: normalizePhone(body.phone),
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (String(body.password || "").trim()) {
+    nextUser.passwordHash = hashPassword(String(body.password).trim());
+  }
+
+  data.users[index] = nextUser;
+  await writeData(data);
+  sendJson(response, 200, { ok: true, user: publicUser(nextUser), users: publicUsers(data.users) });
 }
 
 async function handleDeleteUser(response, data, userId) {
@@ -478,6 +536,7 @@ async function ensureDataFile() {
         id: "user-admin",
         name: "Administrador",
         department: "Gestao",
+        unit: "CORP",
         username: ADMIN_USERNAME,
         phone: "",
         passwordHash: hashPassword(ADMIN_PASSWORD),
@@ -536,6 +595,7 @@ function publicUser(user) {
     id: user.id,
     name: user.name,
     department: user.department,
+    unit: normalizeUnit(user.unit),
     username: user.username,
     phone: user.phone || "",
     role: user.role,
@@ -598,6 +658,13 @@ function normalizePriority(value) {
 
 function normalizeStatus(value) {
   return ["nova", "andamento", "resolvida"].includes(value) ? value : "nova";
+}
+
+function normalizeUnit(value) {
+  const unit = String(value || "")
+    .trim()
+    .toUpperCase();
+  return unitLabels[unit] ? unit : "SPZ";
 }
 
 function responseDueDate(priority) {

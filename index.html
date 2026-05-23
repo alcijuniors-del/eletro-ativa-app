@@ -408,7 +408,7 @@
         <div class="modal-header">
           <div>
             <p class="eyebrow">Acessos</p>
-            <h2>Usuários das lojas</h2>
+            <h2 id="user-modal-title">Usuários das lojas</h2>
           </div>
           <button class="icon-button" id="close-user-button" type="button" aria-label="Fechar">×</button>
         </div>
@@ -423,6 +423,14 @@
             <input name="department" type="text" required placeholder="Ex.: Comercial" />
           </label>
           <label>
+            Unidade
+            <select name="unit" required>
+              <option value="SPZ">SPZ</option>
+              <option value="CNP">CNP</option>
+              <option value="CORP">CORP</option>
+            </select>
+          </label>
+          <label>
             Usuário
             <input name="username" type="text" required autocomplete="off" placeholder="Ex.: ana.comercial" />
           </label>
@@ -430,7 +438,7 @@
             WhatsApp
             <input name="phone" type="tel" required placeholder="Ex.: 65999999999" />
           </label>
-          <label>
+          <label id="user-password-label">
             Senha
             <input name="password" type="password" required autocomplete="new-password" minlength="4" />
           </label>
@@ -438,7 +446,7 @@
 
         <div class="modal-actions">
           <button class="ghost-button" id="cancel-user-button" type="button">Cancelar</button>
-          <button class="primary-button" type="submit">Criar usuário</button>
+          <button class="primary-button" id="user-submit-button" type="submit">Criar usuário</button>
         </div>
 
         <section class="user-list-section">

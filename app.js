@@ -27,6 +27,12 @@ const roleLabels = {
   manager: "Gerente",
 };
 
+const unitLabels = {
+  SPZ: "SPZ",
+  CNP: "CNP",
+  CORP: "CORP",
+};
+
 const priorityWeight = {
   alta: 1,
   media: 2,
@@ -113,6 +119,9 @@ const elements = {
   managerResolvedCount: document.querySelector("#manager-resolved-count"),
   userModal: document.querySelector("#user-modal"),
   userForm: document.querySelector("#user-form"),
+  userModalTitle: document.querySelector("#user-modal-title"),
+  userSubmitButton: document.querySelector("#user-submit-button"),
+  userPasswordLabel: document.querySelector("#user-password-label"),
   closeUserButton: document.querySelector("#close-user-button"),
   cancelUserButton: document.querySelector("#cancel-user-button"),
   userList: document.querySelector("#user-list"),
@@ -353,7 +362,7 @@ function renderAuth() {
 
   elements.appEyebrow.textContent = "Área da loja";
   elements.appTitle.textContent = "Solicitações da loja";
-  elements.managerAccountLabel.textContent = `${currentUser.name} · ${currentUser.department}`;
+  elements.managerAccountLabel.textContent = `${currentUser.name} · ${unitLabel(currentUser.unit)} · ${currentUser.department}`;
   applyResponseDeadline(elements.managerForm, elements.managerSlaHint);
   renderManagerDashboard();
 }
@@ -574,17 +583,27 @@ function renderUsers() {
     row.className = "user-row";
 
     const canDelete = user.role !== "admin";
+    const unit = unitLabel(user.unit);
     row.innerHTML = `
       <div>
         <strong>${escapeHtml(user.name)}</strong>
-        <span>${escapeHtml(user.username)} · ${escapeHtml(user.department)} · ${escapeHtml(formatPhone(user.phone))} · ${roleLabels[user.role]}</span>
+        <span>${escapeHtml(user.username)} · Unidade ${escapeHtml(unit)} · ${escapeHtml(user.department)} · ${escapeHtml(formatPhone(user.phone))} · ${roleLabels[user.role]}</span>
       </div>
-      <button class="ghost-button compact-button" type="button" data-delete-user="${escapeHtml(user.id)}" ${
-        canDelete ? "" : "disabled"
-      }>Excluir</button>
+      <div class="user-row-actions">
+        <button class="ghost-button compact-button" type="button" data-edit-user="${escapeHtml(user.id)}" ${
+          canDelete ? "" : "disabled"
+        }>Editar</button>
+        <button class="ghost-button compact-button" type="button" data-delete-user="${escapeHtml(user.id)}" ${
+          canDelete ? "" : "disabled"
+        }>Excluir</button>
+      </div>
     `;
     elements.userList.append(row);
   });
+}
+
+function unitLabel(unit) {
+  return unitLabels[String(unit || "").toUpperCase()] || "SPZ";
 }
 
 function attachmentsMarkup(attachments = [], title = "Imagens") {
@@ -1109,7 +1128,7 @@ function closeForm() {
 function openUserModal() {
   if (!isAdmin()) return;
 
-  elements.userForm.reset();
+  resetUserFormMode();
   renderUsers();
   elements.userModal.showModal();
   elements.userForm.elements.name.focus();
@@ -1117,13 +1136,48 @@ function openUserModal() {
 
 function closeUserModal() {
   elements.userModal.close();
+  resetUserFormMode();
 }
 
-async function createManagerUser(formData) {
+function resetUserFormMode() {
+  elements.userForm.reset();
+  elements.userForm.dataset.editingUserId = "";
+  elements.userForm.elements.password.required = true;
+  elements.userForm.elements.password.placeholder = "";
+  elements.userPasswordLabel.firstChild.textContent = "Senha";
+  elements.userModalTitle.textContent = "Usuários das lojas";
+  elements.userSubmitButton.textContent = "Criar usuário";
+}
+
+function editUser(userId) {
   if (!isAdmin()) return;
 
+  const user = users.find((item) => item.id === userId);
+  if (!user || user.role === "admin") return;
+
+  elements.userForm.dataset.editingUserId = user.id;
+  elements.userForm.elements.name.value = user.name;
+  elements.userForm.elements.department.value = user.department;
+  elements.userForm.elements.unit.value = unitLabel(user.unit);
+  elements.userForm.elements.username.value = user.username;
+  elements.userForm.elements.phone.value = user.phone || "";
+  elements.userForm.elements.password.value = "";
+  elements.userForm.elements.password.required = false;
+  elements.userForm.elements.password.placeholder = "Deixe em branco para manter";
+  elements.userPasswordLabel.firstChild.textContent = "Nova senha";
+  elements.userModalTitle.textContent = "Editar usuário";
+  elements.userSubmitButton.textContent = "Salvar alterações";
+  elements.userForm.elements.name.focus();
+}
+
+async function saveManagerUser(formData) {
+  if (!isAdmin()) return;
+
+  const editingUserId = elements.userForm.dataset.editingUserId || "";
   const username = normalizeUsername(formData.get("username"));
-  const duplicate = users.some((user) => normalizeUsername(user.username) === username);
+  const duplicate = users.some(
+    (user) => user.id !== editingUserId && normalizeUsername(user.username) === username,
+  );
 
   if (duplicate) {
     showToast("Este usuário já existe.");
@@ -1131,22 +1185,24 @@ async function createManagerUser(formData) {
     return;
   }
 
+  const payload = {
+    name: formData.get("name").trim(),
+    department: formData.get("department").trim(),
+    unit: formData.get("unit"),
+    username,
+    phone: formData.get("phone"),
+    password: formData.get("password"),
+  };
+
   try {
-    const result = await apiFetch(
-      "/api/users",
-      jsonRequest("POST", {
-        name: formData.get("name").trim(),
-        department: formData.get("department").trim(),
-        username,
-        phone: formData.get("phone"),
-        password: formData.get("password"),
-      }),
-    );
+    const result = editingUserId
+      ? await apiFetch(`/api/users/${encodeURIComponent(editingUserId)}`, jsonRequest("PATCH", payload))
+      : await apiFetch("/api/users", jsonRequest("POST", payload));
 
     users = result.users;
-    elements.userForm.reset();
+    resetUserFormMode();
     renderUsers();
-    showToast("Usuário da loja criado.");
+    showToast(editingUserId ? "Usuário atualizado." : "Usuário da loja criado.");
   } catch (error) {
     showToast(error.message);
   }
@@ -1315,13 +1371,19 @@ function bindEvents() {
 
   elements.userForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await createManagerUser(new FormData(elements.userForm));
+    await saveManagerUser(new FormData(elements.userForm));
   });
 
   elements.userList.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-delete-user]");
-    if (!button) return;
-    deleteUser(button.dataset.deleteUser);
+    const editButton = event.target.closest("[data-edit-user]");
+    if (editButton) {
+      editUser(editButton.dataset.editUser);
+      return;
+    }
+
+    const deleteButton = event.target.closest("[data-delete-user]");
+    if (!deleteButton) return;
+    deleteUser(deleteButton.dataset.deleteUser);
   });
 }
 

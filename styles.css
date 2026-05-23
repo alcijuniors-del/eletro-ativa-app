@@ -1173,6 +1173,13 @@ textarea:focus {
   padding: 12px;
 }
 
+.user-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .user-row strong,
 .user-row span {
   display: block;
