@@ -118,13 +118,17 @@
             <h1 id="app-title">Solicitações das lojas</h1>
           </div>
           <div class="topbar-actions">
-            <button class="ghost-button active-view-button" id="requests-view-button" type="button" data-admin-only>
+            <button class="ghost-button active-view-button" id="requests-view-button" type="button">
               <span aria-hidden="true">□</span>
               Solicitações
             </button>
             <button class="ghost-button" id="personal-tasks-button" type="button" data-admin-only>
               <span aria-hidden="true">!</span>
               Minhas pendências
+            </button>
+            <button class="ghost-button" id="meetings-view-button" type="button">
+              <span aria-hidden="true">C</span>
+              Reuniões
             </button>
             <button class="ghost-button" id="users-button" type="button" data-admin-only>
               <span aria-hidden="true">U</span>
@@ -328,6 +332,75 @@
                 <span>Cadastre uma pendência para acompanhar sem misturar com os pedidos dos gerentes.</span>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section class="meetings-panel hidden" id="meetings-panel" aria-label="Reuniões">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow" id="meetings-eyebrow">Agenda Alcir</p>
+              <h2 id="meetings-title">Reuniões</h2>
+            </div>
+            <span id="meetings-summary">0 agendadas</span>
+          </div>
+
+          <div class="meeting-tabs" role="tablist" aria-label="Agenda de reuniões">
+            <button class="manager-tab active" type="button" data-meeting-tab="reunioes">
+              Reuniões
+              <span id="meeting-count-overview">0</span>
+            </button>
+            <button class="manager-tab" type="button" data-meeting-tab="agendadas">
+              Agendadas
+              <span id="meeting-count-booked">0</span>
+            </button>
+            <button class="manager-tab" type="button" data-meeting-tab="agendar">
+              Agendar
+              <span id="meeting-count-available">0</span>
+            </button>
+            <button class="manager-tab" type="button" data-meeting-tab="calendario">
+              Calendário Alcir
+              <span id="meeting-count-calendar">0</span>
+            </button>
+          </div>
+
+          <div class="meeting-reminder hidden" id="meeting-reminder"></div>
+
+          <div class="meeting-admin-panel hidden" id="meeting-admin-panel">
+            <form class="request-form inline-form meeting-slot-form" id="meeting-slot-form">
+              <div class="form-grid">
+                <label>
+                  Data
+                  <input name="date" type="date" required />
+                </label>
+                <label>
+                  Horário
+                  <input name="time" type="time" required />
+                </label>
+                <label>
+                  Status
+                  <select name="status">
+                    <option value="available">Disponível</option>
+                    <option value="blocked">Fechado</option>
+                  </select>
+                </label>
+                <label class="form-wide">
+                  Anotação
+                  <textarea name="adminNote" rows="3" placeholder="Observação interna ou tema já previsto."></textarea>
+                </label>
+              </div>
+              <div class="modal-actions">
+                <button class="primary-button" type="submit">
+                  <span aria-hidden="true">+</span>
+                  Adicionar horário
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div class="meeting-list" id="meeting-list"></div>
+          <div class="empty-state hidden" id="meeting-empty-state">
+            <strong>Nenhum horário nesta aba</strong>
+            <span>Os horários criados e agendados aparecem aqui.</span>
           </div>
         </section>
 

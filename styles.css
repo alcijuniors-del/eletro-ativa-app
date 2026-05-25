@@ -696,7 +696,8 @@ textarea:focus {
 
 .manager-submit-panel,
 .manager-history-panel,
-.personal-tasks-panel {
+.personal-tasks-panel,
+.meetings-panel {
   display: grid;
   gap: 18px;
   max-width: 1040px;
@@ -721,6 +722,13 @@ textarea:focus {
   background:
     linear-gradient(140deg, rgba(255, 122, 24, 0.12), transparent 34%),
     linear-gradient(320deg, rgba(54, 226, 154, 0.1), transparent 42%),
+    var(--surface);
+}
+
+.meetings-panel {
+  background:
+    linear-gradient(140deg, rgba(54, 226, 154, 0.12), transparent 34%),
+    linear-gradient(320deg, rgba(255, 122, 24, 0.12), transparent 42%),
     var(--surface);
 }
 
@@ -758,6 +766,12 @@ textarea:focus {
   gap: 10px;
   position: sticky;
   top: 18px;
+}
+
+.meeting-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .manager-tab {
@@ -872,6 +886,59 @@ textarea:focus {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.meeting-admin-panel,
+.meeting-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 14px;
+}
+
+.meeting-list {
+  display: grid;
+  gap: 12px;
+}
+
+.meeting-card {
+  display: grid;
+  gap: 12px;
+  border-left: 5px solid var(--blue);
+}
+
+.meeting-card.meeting-booked {
+  border-left-color: var(--green);
+}
+
+.meeting-card.meeting-blocked {
+  border-left-color: var(--red);
+}
+
+.meeting-book-form {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.meeting-reminder {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(54, 226, 154, 0.34);
+  border-radius: 8px;
+  background: rgba(54, 226, 154, 0.1);
+  color: #f8fff9;
+  padding: 12px 14px;
+}
+
+.meeting-reminder span {
+  color: #d8cee8;
+  font-size: 0.9rem;
+}
+
+.meeting-agenda-box h3 {
+  margin-bottom: 6px;
 }
 
 .inline-form {
@@ -1445,7 +1512,8 @@ textarea:focus {
   .metrics,
   .control-strip,
   .form-grid,
-  .personal-task-tabs {
+  .personal-task-tabs,
+  .meeting-tabs {
     grid-template-columns: 1fr;
   }
 
@@ -1459,7 +1527,8 @@ textarea:focus {
   }
 
   .manager-submit-panel,
-  .personal-tasks-panel {
+  .personal-tasks-panel,
+  .meetings-panel {
     max-width: none;
   }
 }

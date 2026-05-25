@@ -143,6 +143,36 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/meetings") {
+    sendJson(response, 200, { ok: true, meetings: visibleMeetings(data.meetings, currentUser) });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/meetings") {
+    requireAdmin(currentUser);
+    await handleCreateMeetingSlot(request, response, data, currentUser);
+    return;
+  }
+
+  const meetingBookMatch = url.pathname.match(/^\/api\/meetings\/([^/]+)\/book$/);
+  if (meetingBookMatch && request.method === "POST") {
+    await handleBookMeeting(request, response, data, currentUser, meetingBookMatch[1]);
+    return;
+  }
+
+  const meetingMatch = url.pathname.match(/^\/api\/meetings\/([^/]+)$/);
+  if (meetingMatch && request.method === "PATCH") {
+    requireAdmin(currentUser);
+    await handleUpdateMeetingSlot(request, response, data, meetingMatch[1]);
+    return;
+  }
+
+  if (meetingMatch && request.method === "DELETE") {
+    requireAdmin(currentUser);
+    await handleDeleteMeetingSlot(response, data, meetingMatch[1]);
+    return;
+  }
+
   const personalTaskMatch = url.pathname.match(/^\/api\/personal-tasks\/([^/]+)$/);
   if (personalTaskMatch && request.method === "PATCH") {
     requireAdmin(currentUser);
@@ -376,6 +406,139 @@ async function handleDeletePersonalTask(response, data, taskId) {
 
   await writeData(data);
   sendJson(response, 200, { ok: true, personalTasks: sortPersonalTasks(data.personalTasks) });
+}
+
+async function handleCreateMeetingSlot(request, response, data, currentUser) {
+  const body = await readJsonBody(request);
+  const now = new Date().toISOString();
+  const status = normalizeMeetingStatus(body.status);
+
+  if (status === "booked") {
+    sendJson(response, 400, { ok: false, error: "Crie o horario como disponivel ou fechado." });
+    return;
+  }
+
+  const meeting = {
+    id: createId("meeting"),
+    date: normalizeDateInput(body.date, todayInBusinessTimezone()),
+    time: normalizeTimeInput(body.time),
+    status,
+    adminNote: cleanText(body.adminNote, ""),
+    topic: "",
+    agenda: "",
+    bookedBy: "",
+    bookedByName: "",
+    bookedByDepartment: "",
+    bookedByUnit: "",
+    createdBy: currentUser.id,
+    createdAt: now,
+    updatedAt: now,
+    bookedAt: "",
+  };
+
+  if (!meeting.time) {
+    sendJson(response, 400, { ok: false, error: "Informe o horario da reuniao." });
+    return;
+  }
+
+  data.meetings = [meeting, ...data.meetings];
+  await writeData(data);
+  sendJson(response, 201, { ok: true, meeting, meetings: sortMeetings(data.meetings) });
+}
+
+async function handleUpdateMeetingSlot(request, response, data, meetingId) {
+  const body = await readJsonBody(request);
+  const index = data.meetings.findIndex((item) => item.id === meetingId);
+
+  if (index === -1) {
+    sendJson(response, 404, { ok: false, error: "Horario nao encontrado." });
+    return;
+  }
+
+  const previous = data.meetings[index];
+  const status = normalizeMeetingStatus(body.status || previous.status);
+  const now = new Date().toISOString();
+
+  const nextMeeting = {
+    ...previous,
+    date: body.date === undefined ? previous.date : normalizeDateInput(body.date, previous.date),
+    time: body.time === undefined ? previous.time : normalizeTimeInput(body.time) || previous.time,
+    status,
+    adminNote: body.adminNote === undefined ? previous.adminNote : cleanText(body.adminNote, ""),
+    updatedAt: now,
+  };
+
+  if (status !== "booked") {
+    nextMeeting.topic = "";
+    nextMeeting.agenda = "";
+    nextMeeting.bookedBy = "";
+    nextMeeting.bookedByName = "";
+    nextMeeting.bookedByDepartment = "";
+    nextMeeting.bookedByUnit = "";
+    nextMeeting.bookedAt = "";
+  }
+
+  data.meetings[index] = nextMeeting;
+  await writeData(data);
+  sendJson(response, 200, { ok: true, meeting: nextMeeting, meetings: sortMeetings(data.meetings) });
+}
+
+async function handleBookMeeting(request, response, data, currentUser, meetingId) {
+  if (currentUser.role !== "manager") {
+    sendJson(response, 403, { ok: false, error: "Apenas gestores podem agendar reunioes." });
+    return;
+  }
+
+  const body = await readJsonBody(request);
+  const topic = cleanText(body.topic, "");
+  const agenda = cleanText(body.agenda, "");
+  const index = data.meetings.findIndex((item) => item.id === meetingId);
+
+  if (index === -1) {
+    sendJson(response, 404, { ok: false, error: "Horario nao encontrado." });
+    return;
+  }
+
+  if (data.meetings[index].status !== "available") {
+    sendJson(response, 409, { ok: false, error: "Este horario nao esta disponivel." });
+    return;
+  }
+
+  if (!topic || !agenda) {
+    sendJson(response, 400, { ok: false, error: "Informe o tema e as pautas da reuniao." });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const meeting = {
+    ...data.meetings[index],
+    status: "booked",
+    topic,
+    agenda,
+    bookedBy: currentUser.id,
+    bookedByName: currentUser.name,
+    bookedByDepartment: currentUser.department,
+    bookedByUnit: normalizeUnit(currentUser.unit),
+    bookedAt: now,
+    updatedAt: now,
+  };
+
+  data.meetings[index] = meeting;
+  await writeData(data);
+  sendJson(response, 200, { ok: true, meeting, meetings: visibleMeetings(data.meetings, currentUser) });
+}
+
+async function handleDeleteMeetingSlot(response, data, meetingId) {
+  const before = data.meetings.length;
+  data.meetings = data.meetings.filter((item) => item.id !== meetingId);
+
+  if (data.meetings.length === before) {
+    sendJson(response, 404, { ok: false, error: "Horario nao encontrado." });
+    return;
+  }
+
+  await writeData(data);
+  sendJson(response, 200, { ok: true, meetings: sortMeetings(data.meetings) });
 }
 
 async function handleUpdateRequest(request, response, data, currentUser, requestId) {
@@ -613,6 +776,7 @@ function buildStatePayload(data, currentUser) {
     requests: visibleRequests,
     users: isAdmin ? publicUsers(data.users) : [],
     personalTasks: isAdmin ? sortPersonalTasks(data.personalTasks) : [],
+    meetings: visibleMeetings(data.meetings, currentUser),
   };
 }
 
@@ -625,6 +789,7 @@ async function readData() {
     users: Array.isArray(parsed.users) ? parsed.users : [],
     requests: Array.isArray(parsed.requests) ? parsed.requests : [],
     personalTasks: Array.isArray(parsed.personalTasks) ? parsed.personalTasks : [],
+    meetings: Array.isArray(parsed.meetings) ? parsed.meetings : [],
   };
 }
 
@@ -659,6 +824,7 @@ async function ensureDataFile() {
     ],
     requests: [],
     personalTasks: [],
+    meetings: [],
   };
 
   await writeData(initialData);
@@ -778,6 +944,10 @@ function normalizePersonalTaskStatus(value) {
   return ["pendente", "resolvida"].includes(value) ? value : "pendente";
 }
 
+function normalizeMeetingStatus(value) {
+  return ["available", "blocked", "booked"].includes(value) ? value : "available";
+}
+
 function normalizeUnit(value) {
   const unit = String(value || "")
     .trim()
@@ -788,6 +958,11 @@ function normalizeUnit(value) {
 function normalizeDateInput(value, fallback) {
   const dateText = String(value || "").trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(dateText) ? dateText : fallback;
+}
+
+function normalizeTimeInput(value) {
+  const timeText = String(value || "").trim();
+  return /^\d{2}:\d{2}$/.test(timeText) ? timeText : "";
 }
 
 function todayInBusinessTimezone() {
@@ -900,6 +1075,27 @@ function sortPersonalTasks(items) {
     if (updatedDiff !== 0) return updatedDiff;
 
     return String(right.id || "").localeCompare(String(left.id || ""));
+  });
+}
+
+function visibleMeetings(items, currentUser) {
+  const meetings = Array.isArray(items) ? items : [];
+  if (currentUser.role === "admin") return sortMeetings(meetings);
+
+  return sortMeetings(
+    meetings.filter((meeting) => meeting.status === "available" || meeting.bookedBy === currentUser.id),
+  );
+}
+
+function sortMeetings(items) {
+  return [...items].sort((left, right) => {
+    const dateDiff = String(left.date || "").localeCompare(String(right.date || ""));
+    if (dateDiff !== 0) return dateDiff;
+
+    const timeDiff = String(left.time || "").localeCompare(String(right.time || ""));
+    if (timeDiff !== 0) return timeDiff;
+
+    return String(left.id || "").localeCompare(String(right.id || ""));
   });
 }
 

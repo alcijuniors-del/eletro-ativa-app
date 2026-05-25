@@ -33,6 +33,18 @@ const unitLabels = {
   CORP: "CORP",
 };
 
+const meetingStatusLabels = {
+  available: "Disponível",
+  blocked: "Fechado",
+  booked: "Agendada",
+};
+
+const meetingStatusClasses = {
+  available: "status-andamento",
+  blocked: "status-nova",
+  booked: "status-resolvida",
+};
+
 const priorityWeight = {
   alta: 1,
   media: 2,
@@ -67,14 +79,17 @@ const daysFromToday = (days) => {
 let requests = [];
 let users = [];
 let personalTasks = [];
+let meetings = [];
 let currentUser = null;
 let selectedId = null;
 let currentStatus = "todas";
 let searchTerm = "";
 let priorityFilter = "todas";
 let managerTab = "minhas";
+let managerWorkspace = "requests";
 let adminView = "requests";
 let personalTaskFilter = "pendentes";
+let meetingTab = "reunioes";
 let renderedDetailId = null;
 let toastTimeout;
 let stateRefreshTimer;
@@ -95,6 +110,7 @@ const elements = {
   requestsAdminView: document.querySelectorAll("[data-requests-admin-view]"),
   requestsViewButton: document.querySelector("#requests-view-button"),
   personalTasksButton: document.querySelector("#personal-tasks-button"),
+  meetingsViewButton: document.querySelector("#meetings-view-button"),
   navItems: document.querySelectorAll(".nav-item"),
   requestList: document.querySelector("#request-list"),
   emptyState: document.querySelector("#empty-state"),
@@ -137,6 +153,20 @@ const elements = {
   personalPendingCount: document.querySelector("#personal-pending-count"),
   personalResolvedCount: document.querySelector("#personal-resolved-count"),
   personalAllCount: document.querySelector("#personal-all-count"),
+  meetingsPanel: document.querySelector("#meetings-panel"),
+  meetingsEyebrow: document.querySelector("#meetings-eyebrow"),
+  meetingsTitle: document.querySelector("#meetings-title"),
+  meetingsSummary: document.querySelector("#meetings-summary"),
+  meetingTabs: document.querySelectorAll("[data-meeting-tab]"),
+  meetingReminder: document.querySelector("#meeting-reminder"),
+  meetingAdminPanel: document.querySelector("#meeting-admin-panel"),
+  meetingSlotForm: document.querySelector("#meeting-slot-form"),
+  meetingList: document.querySelector("#meeting-list"),
+  meetingEmptyState: document.querySelector("#meeting-empty-state"),
+  meetingCountOverview: document.querySelector("#meeting-count-overview"),
+  meetingCountBooked: document.querySelector("#meeting-count-booked"),
+  meetingCountAvailable: document.querySelector("#meeting-count-available"),
+  meetingCountCalendar: document.querySelector("#meeting-count-calendar"),
   userModal: document.querySelector("#user-modal"),
   userForm: document.querySelector("#user-form"),
   userModalTitle: document.querySelector("#user-modal-title"),
@@ -196,6 +226,7 @@ async function loadSession() {
     requests = [];
     users = [];
     personalTasks = [];
+    meetings = [];
     selectedId = null;
   }
 }
@@ -207,7 +238,7 @@ function renderCurrentView() {
     renderUsers();
     return;
   }
-  renderManagerDashboard();
+  renderManagerView();
 }
 
 function applyState(payload) {
@@ -215,6 +246,7 @@ function applyState(payload) {
   requests = Array.isArray(payload.requests) ? payload.requests : requests;
   users = Array.isArray(payload.users) ? payload.users : users;
   personalTasks = Array.isArray(payload.personalTasks) ? payload.personalTasks : personalTasks;
+  meetings = Array.isArray(payload.meetings) ? payload.meetings : meetings;
 
   if (!requests.some((request) => request.id === selectedId)) {
     selectedId = requests[0]?.id ?? null;
@@ -236,6 +268,8 @@ async function apiFetch(path, options = {}) {
       currentUser = null;
       requests = [];
       users = [];
+      personalTasks = [];
+      meetings = [];
       renderAuth();
     }
     throw new Error(payload.error || "Nao foi possivel concluir a acao.");
@@ -371,8 +405,6 @@ function renderAuth() {
   elements.currentUserRole.textContent = roleLabels[currentUser.role];
   elements.currentUserRole.className = `role-pill role-${currentUser.role}`;
   elements.adminOnly.forEach((element) => element.classList.toggle("hidden", !userIsAdmin));
-  elements.managerPanel.classList.toggle("hidden", userIsAdmin);
-  elements.managerHistoryPanel.classList.toggle("hidden", userIsAdmin);
 
   if (userIsAdmin) {
     elements.personalTaskForm.elements.dueDate.min = todayIso();
@@ -381,23 +413,26 @@ function renderAuth() {
     return;
   }
 
-  elements.appEyebrow.textContent = "Área da loja";
-  elements.appTitle.textContent = "Solicitações da loja";
-  elements.managerAccountLabel.textContent = `${currentUser.name} · ${unitLabel(currentUser.unit)} · ${currentUser.department}`;
   applyResponseDeadline(elements.managerForm, elements.managerSlaHint);
-  renderManagerDashboard();
+  renderManagerView();
 }
 
 function renderAdminView() {
   if (!isAdmin()) return;
 
+  const showingRequests = adminView === "requests";
   const showingPersonalTasks = adminView === "personal";
+  const showingMeetings = adminView === "meetings";
   elements.requestsAdminView.forEach((element) => {
-    element.classList.toggle("hidden", showingPersonalTasks);
+    element.classList.toggle("hidden", !showingRequests);
   });
+  elements.managerPanel.classList.add("hidden");
+  elements.managerHistoryPanel.classList.add("hidden");
   elements.personalTasksPanel.classList.toggle("hidden", !showingPersonalTasks);
-  elements.requestsViewButton.classList.toggle("active-view-button", !showingPersonalTasks);
+  elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
+  elements.requestsViewButton.classList.toggle("active-view-button", showingRequests);
   elements.personalTasksButton.classList.toggle("active-view-button", showingPersonalTasks);
+  elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
 
   if (showingPersonalTasks) {
     elements.appEyebrow.textContent = "Controle pessoal";
@@ -406,9 +441,40 @@ function renderAdminView() {
     return;
   }
 
+  if (showingMeetings) {
+    elements.appEyebrow.textContent = "Agenda Alcir";
+    elements.appTitle.textContent = "Reuniões";
+    renderMeetings();
+    return;
+  }
+
   elements.appEyebrow.textContent = "Painel das lojas";
   elements.appTitle.textContent = "Solicitações das lojas";
   render();
+}
+
+function renderManagerView() {
+  if (isAdmin()) return;
+
+  const showingMeetings = managerWorkspace === "meetings";
+  elements.managerPanel.classList.toggle("hidden", showingMeetings);
+  elements.managerHistoryPanel.classList.toggle("hidden", showingMeetings);
+  elements.personalTasksPanel.classList.add("hidden");
+  elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
+  elements.requestsViewButton.classList.toggle("active-view-button", !showingMeetings);
+  elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
+
+  if (showingMeetings) {
+    elements.appEyebrow.textContent = "Agenda Alcir";
+    elements.appTitle.textContent = "Reuniões";
+    renderMeetings();
+    return;
+  }
+
+  elements.appEyebrow.textContent = "Área da loja";
+  elements.appTitle.textContent = "Solicitações da loja";
+  elements.managerAccountLabel.textContent = `${currentUser.name} · ${unitLabel(currentUser.unit)} · ${currentUser.department}`;
+  renderManagerDashboard();
 }
 
 function render() {
@@ -624,6 +690,177 @@ function comparePersonalTasks(left, right) {
 
 function isPersonalTaskOverdue(task) {
   return task.status !== "resolvida" && task.dueDate < todayIso();
+}
+
+function renderMeetings() {
+  const bookedMeetings = meetings.filter((meeting) => meeting.status === "booked");
+  const availableMeetings = meetings.filter((meeting) => meeting.status === "available");
+  const visibleMeetings = filteredMeetings();
+  const upcomingMeeting = nextManagerMeeting();
+
+  elements.meetingsEyebrow.textContent = isAdmin() ? "Agenda Alcir" : "Agenda do Alcir";
+  elements.meetingsTitle.textContent = meetingTitle();
+  elements.meetingsSummary.textContent = `${bookedMeetings.length} ${
+    bookedMeetings.length === 1 ? "agendada" : "agendadas"
+  }`;
+  elements.meetingCountOverview.textContent = meetings.length;
+  elements.meetingCountBooked.textContent = bookedMeetings.length;
+  elements.meetingCountAvailable.textContent = availableMeetings.length;
+  elements.meetingCountCalendar.textContent = meetings.length;
+  elements.meetingAdminPanel.classList.toggle("hidden", !isAdmin());
+
+  elements.meetingTabs.forEach((button) => {
+    button.classList.toggle("active", button.dataset.meetingTab === meetingTab);
+  });
+
+  renderMeetingReminder(upcomingMeeting);
+  elements.meetingList.innerHTML = "";
+  elements.meetingEmptyState.classList.toggle("hidden", visibleMeetings.length > 0);
+  elements.meetingEmptyState.querySelector("strong").textContent =
+    meetingTab === "agendar" ? "Nenhum horário disponível" : "Nenhuma reunião nesta aba";
+  elements.meetingEmptyState.querySelector("span").textContent =
+    meetingTab === "agendar"
+      ? "Quando a agenda for aberta, os horários disponíveis aparecem aqui."
+      : "As reuniões e horários criados aparecem aqui.";
+
+  visibleMeetings.forEach((meeting) => {
+    const card = document.createElement("article");
+    card.className = `meeting-card meeting-${meeting.status}`;
+    card.dataset.meetingId = meeting.id;
+    const bookedBy = meeting.bookedByName
+      ? `${meeting.bookedByName} · ${unitLabel(meeting.bookedByUnit)} · ${meeting.bookedByDepartment || "Loja"}`
+      : "";
+
+    card.innerHTML = `
+      <div class="request-title-row">
+        <div>
+          <strong>${formatDate(meeting.date)} às ${escapeHtml(meeting.time || "--:--")}</strong>
+          <span class="manager-request-date">${meetingSubtitle(meeting)}</span>
+        </div>
+        <span class="status-pill ${meetingStatusClasses[meeting.status] || "status-andamento"}">
+          ${meetingStatusLabels[meeting.status] || "Disponível"}
+        </span>
+      </div>
+      ${
+        meeting.adminNote
+          ? `<p class="request-description">${escapeHtml(meeting.adminNote)}</p>`
+          : ""
+      }
+      ${
+        bookedBy
+          ? `<div class="request-meta"><span class="chip">${escapeHtml(bookedBy)}</span></div>`
+          : ""
+      }
+      ${
+        meeting.status === "booked"
+          ? `<section class="manager-response-box meeting-agenda-box">
+              <h3>${escapeHtml(meeting.topic || "Tema da reunião")}</h3>
+              <p>${escapeHtml(meeting.agenda || "Pautas não informadas.")}</p>
+            </section>`
+          : ""
+      }
+      ${meetingActionMarkup(meeting)}
+    `;
+
+    elements.meetingList.append(card);
+  });
+}
+
+function meetingTitle() {
+  const titles = {
+    reunioes: "Reuniões",
+    agendadas: "Agendadas",
+    agendar: "Agendar",
+    calendario: "Calendário Alcir",
+  };
+  return titles[meetingTab] || titles.reunioes;
+}
+
+function filteredMeetings() {
+  return [...meetings]
+    .filter((meeting) => {
+      if (meetingTab === "agendadas") return meeting.status === "booked";
+      if (meetingTab === "agendar") return meeting.status === "available";
+      if (meetingTab === "reunioes") return meeting.status !== "blocked" || isAdmin();
+      return true;
+    })
+    .sort(compareMeetings);
+}
+
+function compareMeetings(left, right) {
+  const dateDiff = String(left.date || "").localeCompare(String(right.date || ""));
+  if (dateDiff !== 0) return dateDiff;
+
+  const timeDiff = String(left.time || "").localeCompare(String(right.time || ""));
+  if (timeDiff !== 0) return timeDiff;
+
+  return String(left.id || "").localeCompare(String(right.id || ""));
+}
+
+function meetingSubtitle(meeting) {
+  if (meeting.status === "available") return "Horário aberto para agendamento";
+  if (meeting.status === "blocked") return "Horário fechado na agenda";
+  return `Agendada em ${formatDateTime(meeting.bookedAt || meeting.updatedAt)}`;
+}
+
+function meetingActionMarkup(meeting) {
+  if (isAdmin()) {
+    return `
+      <div class="manager-card-actions">
+        ${
+          meeting.status === "available"
+            ? `<button class="ghost-button compact-button" type="button" data-close-meeting="${escapeHtml(meeting.id)}">Fechar</button>`
+            : `<button class="primary-button compact-button" type="button" data-open-meeting="${escapeHtml(meeting.id)}">Abrir</button>`
+        }
+        <button class="ghost-button compact-button" type="button" data-delete-meeting="${escapeHtml(meeting.id)}">Excluir</button>
+      </div>
+    `;
+  }
+
+  if (meeting.status !== "available") return "";
+
+  return `
+    <form class="meeting-book-form" data-book-meeting-form="${escapeHtml(meeting.id)}">
+      <label>
+        Tema da reunião
+        <input name="topic" type="text" required placeholder="Ex.: alinhamento de vendas" />
+      </label>
+      <label>
+        Pautas a serem abordadas
+        <textarea name="agenda" rows="4" required placeholder="Liste os assuntos que precisam entrar na reunião."></textarea>
+      </label>
+      <div class="manager-card-actions">
+        <button class="primary-button compact-button" type="submit">Agendar reunião</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderMeetingReminder(upcomingMeeting) {
+  if (isAdmin() || !upcomingMeeting) {
+    elements.meetingReminder.classList.add("hidden");
+    elements.meetingReminder.innerHTML = "";
+    return;
+  }
+
+  elements.meetingReminder.classList.remove("hidden");
+  elements.meetingReminder.innerHTML = `
+    <strong>Lembrete de reunião</strong>
+    <span>Você tem reunião com Alcir em ${formatDate(upcomingMeeting.date)} às ${escapeHtml(upcomingMeeting.time)}.</span>
+    <span>${escapeHtml(upcomingMeeting.topic || "Tema não informado")}</span>
+  `;
+}
+
+function nextManagerMeeting() {
+  if (isAdmin()) return null;
+  const now = new Date();
+  return meetings
+    .filter((meeting) => meeting.status === "booked" && meetingDate(meeting) >= now)
+    .sort((left, right) => meetingDate(left) - meetingDate(right))[0] || null;
+}
+
+function meetingDate(meeting) {
+  return new Date(`${meeting.date || "1970-01-01"}T${meeting.time || "00:00"}:00`);
 }
 
 function renderCounts() {
@@ -1117,6 +1354,86 @@ async function deletePersonalTask(taskId) {
     personalTasks = result.personalTasks;
     renderAdminView();
     showToast("Pendência excluída.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function createMeetingSlot(formData) {
+  if (!isAdmin()) return false;
+
+  const payload = {
+    date: formData.get("date"),
+    time: formData.get("time"),
+    status: formData.get("status"),
+    adminNote: formData.get("adminNote")?.trim() ?? "",
+  };
+
+  try {
+    const result = await apiFetch("/api/meetings", jsonRequest("POST", payload));
+    meetings = result.meetings;
+    elements.meetingSlotForm.reset();
+    elements.meetingSlotForm.elements.date.min = todayIso();
+    renderAdminView();
+    showToast("Horário adicionado à agenda.");
+    return true;
+  } catch (error) {
+    showToast(error.message);
+    return false;
+  }
+}
+
+async function updateMeeting(meetingId, payload, successMessage) {
+  if (!isAdmin()) return;
+
+  try {
+    const result = await apiFetch(`/api/meetings/${encodeURIComponent(meetingId)}`, jsonRequest("PATCH", payload));
+    meetings = result.meetings;
+    renderAdminView();
+    showToast(successMessage);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function deleteMeeting(meetingId) {
+  if (!isAdmin()) return;
+
+  const meeting = meetings.find((item) => item.id === meetingId);
+  if (!meeting) return;
+
+  const confirmed = window.confirm(`Excluir o horário de ${formatDate(meeting.date)} às ${meeting.time}?`);
+  if (!confirmed) return;
+
+  try {
+    const result = await apiFetch(`/api/meetings/${encodeURIComponent(meetingId)}`, {
+      method: "DELETE",
+    });
+    meetings = result.meetings;
+    renderAdminView();
+    showToast("Horário excluído.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function bookMeeting(meetingId, form) {
+  if (isAdmin()) return;
+
+  const payload = {
+    topic: form.elements.topic.value.trim(),
+    agenda: form.elements.agenda.value.trim(),
+  };
+
+  try {
+    const result = await apiFetch(
+      `/api/meetings/${encodeURIComponent(meetingId)}/book`,
+      jsonRequest("POST", payload),
+    );
+    meetings = result.meetings;
+    meetingTab = "agendadas";
+    renderManagerView();
+    showToast("Reunião agendada com Alcir.");
   } catch (error) {
     showToast(error.message);
   }
@@ -1647,8 +1964,10 @@ async function logout() {
   requests = [];
   users = [];
   personalTasks = [];
+  meetings = [];
   selectedId = null;
   adminView = "requests";
+  managerWorkspace = "requests";
   stopStateRefresh();
   renderAuth();
 }
@@ -1896,8 +2215,13 @@ function bindEvents() {
   });
 
   elements.requestsViewButton.addEventListener("click", () => {
-    adminView = "requests";
-    renderAdminView();
+    if (isAdmin()) {
+      adminView = "requests";
+      renderAdminView();
+      return;
+    }
+    managerWorkspace = "requests";
+    renderManagerView();
   });
 
   elements.personalTasksButton.addEventListener("click", () => {
@@ -1909,6 +2233,20 @@ function bindEvents() {
     renderAdminView();
   });
   elements.printPersonalTasksButton.addEventListener("click", printPersonalTasksPdf);
+
+  elements.meetingsViewButton.addEventListener("click", () => {
+    if (isAdmin()) {
+      adminView = "meetings";
+      elements.meetingSlotForm.elements.date.min = todayIso();
+      if (!elements.meetingSlotForm.elements.date.value) {
+        elements.meetingSlotForm.elements.date.value = todayIso();
+      }
+      renderAdminView();
+      return;
+    }
+    managerWorkspace = "meetings";
+    renderManagerView();
+  });
 
   elements.priorityInput.addEventListener("change", () => {
     applyResponseDeadline(elements.form, elements.adminSlaHint);
@@ -1978,6 +2316,44 @@ function bindEvents() {
     const deleteButton = event.target.closest("[data-delete-personal-task]");
     if (!deleteButton) return;
     deletePersonalTask(deleteButton.dataset.deletePersonalTask);
+  });
+
+  elements.meetingTabs.forEach((button) => {
+    button.addEventListener("click", () => {
+      meetingTab = button.dataset.meetingTab;
+      if (isAdmin()) renderAdminView();
+      else renderManagerView();
+    });
+  });
+
+  elements.meetingSlotForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await createMeetingSlot(new FormData(elements.meetingSlotForm));
+  });
+
+  elements.meetingList.addEventListener("submit", (event) => {
+    const form = event.target.closest("[data-book-meeting-form]");
+    if (!form) return;
+    event.preventDefault();
+    bookMeeting(form.dataset.bookMeetingForm, form);
+  });
+
+  elements.meetingList.addEventListener("click", (event) => {
+    const openButton = event.target.closest("[data-open-meeting]");
+    if (openButton) {
+      updateMeeting(openButton.dataset.openMeeting, { status: "available" }, "Horário aberto.");
+      return;
+    }
+
+    const closeButton = event.target.closest("[data-close-meeting]");
+    if (closeButton) {
+      updateMeeting(closeButton.dataset.closeMeeting, { status: "blocked" }, "Horário fechado.");
+      return;
+    }
+
+    const deleteButton = event.target.closest("[data-delete-meeting]");
+    if (!deleteButton) return;
+    deleteMeeting(deleteButton.dataset.deleteMeeting);
   });
 
   elements.form.addEventListener("submit", async (event) => {
