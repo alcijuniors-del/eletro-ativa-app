@@ -90,6 +90,8 @@ let managerWorkspace = "requests";
 let adminView = "requests";
 let personalTaskFilter = "pendentes";
 let meetingTab = "reunioes";
+let meetingSelectedDate = todayIso();
+let meetingCalendarDate = new Date();
 let renderedDetailId = null;
 let toastTimeout;
 let stateRefreshTimer;
@@ -161,6 +163,7 @@ const elements = {
   meetingReminder: document.querySelector("#meeting-reminder"),
   meetingAdminPanel: document.querySelector("#meeting-admin-panel"),
   meetingSlotForm: document.querySelector("#meeting-slot-form"),
+  meetingCalendar: document.querySelector("#meeting-calendar"),
   meetingList: document.querySelector("#meeting-list"),
   meetingEmptyState: document.querySelector("#meeting-empty-state"),
   meetingCountOverview: document.querySelector("#meeting-count-overview"),
@@ -697,6 +700,7 @@ function renderMeetings() {
   const availableMeetings = meetings.filter((meeting) => meeting.status === "available");
   const visibleMeetings = filteredMeetings();
   const upcomingMeeting = nextManagerMeeting();
+  const showingCalendar = meetingTab === "calendario";
 
   elements.meetingsEyebrow.textContent = isAdmin() ? "Agenda Alcir" : "Agenda do Alcir";
   elements.meetingsTitle.textContent = meetingTitle();
@@ -708,19 +712,35 @@ function renderMeetings() {
   elements.meetingCountAvailable.textContent = availableMeetings.length;
   elements.meetingCountCalendar.textContent = meetings.length;
   elements.meetingAdminPanel.classList.toggle("hidden", !isAdmin());
+  elements.meetingCalendar.classList.toggle("hidden", !showingCalendar);
 
   elements.meetingTabs.forEach((button) => {
     button.classList.toggle("active", button.dataset.meetingTab === meetingTab);
   });
 
+  if (showingCalendar) {
+    renderMeetingCalendar();
+    if (isAdmin()) {
+      elements.meetingSlotForm.elements.date.value = meetingSelectedDate;
+    }
+  } else {
+    elements.meetingCalendar.innerHTML = "";
+  }
+
   renderMeetingReminder(upcomingMeeting);
   elements.meetingList.innerHTML = "";
   elements.meetingEmptyState.classList.toggle("hidden", visibleMeetings.length > 0);
   elements.meetingEmptyState.querySelector("strong").textContent =
-    meetingTab === "agendar" ? "Nenhum horário disponível" : "Nenhuma reunião nesta aba";
+    meetingTab === "agendar"
+      ? "Nenhum horário disponível"
+      : showingCalendar
+        ? "Nenhum horário neste dia"
+        : "Nenhuma reunião nesta aba";
   elements.meetingEmptyState.querySelector("span").textContent =
     meetingTab === "agendar"
       ? "Quando a agenda for aberta, os horários disponíveis aparecem aqui."
+      : showingCalendar
+        ? "Selecione outro dia no calendário ou abra um horário para esta data."
       : "As reuniões e horários criados aparecem aqui.";
 
   visibleMeetings.forEach((meeting) => {
@@ -781,10 +801,98 @@ function filteredMeetings() {
     .filter((meeting) => {
       if (meetingTab === "agendadas") return meeting.status === "booked";
       if (meetingTab === "agendar") return meeting.status === "available";
+      if (meetingTab === "calendario") return meeting.date === meetingSelectedDate;
       if (meetingTab === "reunioes") return meeting.status !== "blocked" || isAdmin();
       return true;
     })
     .sort(compareMeetings);
+}
+
+function renderMeetingCalendar() {
+  const year = meetingCalendarDate.getFullYear();
+  const month = meetingCalendarDate.getMonth();
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 0);
+  const firstWeekday = monthStart.getDay();
+  const totalDays = monthEnd.getDate();
+  const cells = [];
+
+  for (let index = 0; index < firstWeekday; index += 1) {
+    cells.push('<span class="calendar-day empty"></span>');
+  }
+
+  for (let day = 1; day <= totalDays; day += 1) {
+    const dateValue = toDateInputValue(new Date(year, month, day));
+    const dayMeetings = meetings.filter((meeting) => meeting.date === dateValue);
+    const availableCount = dayMeetings.filter((meeting) => meeting.status === "available").length;
+    const bookedCount = dayMeetings.filter((meeting) => meeting.status === "booked").length;
+    const blockedCount = dayMeetings.filter((meeting) => meeting.status === "blocked").length;
+    const label = calendarDayLabel(availableCount, bookedCount, blockedCount);
+    const classes = [
+      "calendar-day",
+      dateValue === meetingSelectedDate ? "selected" : "",
+      dateValue === todayIso() ? "today" : "",
+      availableCount > 0 ? "has-available" : "",
+      bookedCount > 0 ? "has-booked" : "",
+      blockedCount > 0 ? "has-blocked" : "",
+    ].filter(Boolean).join(" ");
+
+    cells.push(`
+      <button class="${classes}" type="button" data-meeting-day="${dateValue}">
+        <strong>${day}</strong>
+        <span>${label}</span>
+      </button>
+    `);
+  }
+
+  const selectedMeetings = meetings.filter((meeting) => meeting.date === meetingSelectedDate);
+  const selectedAvailable = selectedMeetings.filter((meeting) => meeting.status === "available").length;
+  const selectedBooked = selectedMeetings.filter((meeting) => meeting.status === "booked").length;
+  const selectedBlocked = selectedMeetings.filter((meeting) => meeting.status === "blocked").length;
+
+  elements.meetingCalendar.innerHTML = `
+    <div class="calendar-toolbar">
+      <button class="ghost-button compact-button" type="button" data-calendar-prev>‹</button>
+      <div>
+        <strong>${monthStart.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}</strong>
+        <span>Selecionado: ${formatDate(meetingSelectedDate)}</span>
+      </div>
+      <button class="ghost-button compact-button" type="button" data-calendar-next>›</button>
+    </div>
+    <div class="calendar-weekdays" aria-hidden="true">
+      <span>Dom</span>
+      <span>Seg</span>
+      <span>Ter</span>
+      <span>Qua</span>
+      <span>Qui</span>
+      <span>Sex</span>
+      <span>Sáb</span>
+    </div>
+    <div class="calendar-grid">
+      ${cells.join("")}
+    </div>
+    <div class="calendar-selected-day">
+      <div>
+        <strong>${formatDate(meetingSelectedDate)}</strong>
+        <span>${selectedAvailable} disponíveis · ${selectedBooked} agendadas · ${selectedBlocked} fechados</span>
+      </div>
+      ${
+        isAdmin()
+          ? `<div class="calendar-day-actions">
+              <button class="ghost-button compact-button" type="button" data-open-meeting-day="${meetingSelectedDate}">Abrir horários fechados</button>
+              <button class="ghost-button compact-button" type="button" data-close-meeting-day="${meetingSelectedDate}">Fechar disponíveis</button>
+            </div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function calendarDayLabel(availableCount, bookedCount, blockedCount) {
+  if (availableCount > 0) return `${availableCount} disp.`;
+  if (bookedCount > 0) return `${bookedCount} agend.`;
+  if (blockedCount > 0) return `${blockedCount} fech.`;
+  return "sem agenda";
 }
 
 function compareMeetings(left, right) {
@@ -1372,6 +1480,9 @@ async function createMeetingSlot(formData) {
   try {
     const result = await apiFetch("/api/meetings", jsonRequest("POST", payload));
     meetings = result.meetings;
+    meetingSelectedDate = payload.date;
+    const [year, month] = meetingSelectedDate.split("-").map(Number);
+    meetingCalendarDate = new Date(year, month - 1, 1);
     elements.meetingSlotForm.reset();
     elements.meetingSlotForm.elements.date.min = todayIso();
     renderAdminView();
@@ -1391,6 +1502,35 @@ async function updateMeeting(meetingId, payload, successMessage) {
     meetings = result.meetings;
     renderAdminView();
     showToast(successMessage);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function updateMeetingDay(date, status) {
+  if (!isAdmin()) return;
+
+  const targetMeetings = meetings.filter((meeting) => {
+    if (meeting.date !== date) return false;
+    if (status === "available") return meeting.status === "blocked";
+    if (status === "blocked") return meeting.status === "available";
+    return false;
+  });
+
+  if (targetMeetings.length === 0) {
+    showToast(status === "available" ? "Nenhum horário fechado neste dia." : "Nenhum horário disponível neste dia.");
+    return;
+  }
+
+  try {
+    const results = await Promise.all(
+      targetMeetings.map((meeting) =>
+        apiFetch(`/api/meetings/${encodeURIComponent(meeting.id)}`, jsonRequest("PATCH", { status })),
+      ),
+    );
+    meetings = results[results.length - 1].meetings;
+    renderAdminView();
+    showToast(status === "available" ? "Horários do dia abertos." : "Horários disponíveis do dia fechados.");
   } catch (error) {
     showToast(error.message);
   }
@@ -2321,6 +2461,10 @@ function bindEvents() {
   elements.meetingTabs.forEach((button) => {
     button.addEventListener("click", () => {
       meetingTab = button.dataset.meetingTab;
+      if (meetingTab === "calendario") {
+        const [year, month] = meetingSelectedDate.split("-").map(Number);
+        meetingCalendarDate = new Date(year, month - 1, 1);
+      }
       if (isAdmin()) renderAdminView();
       else renderManagerView();
     });
@@ -2354,6 +2498,45 @@ function bindEvents() {
     const deleteButton = event.target.closest("[data-delete-meeting]");
     if (!deleteButton) return;
     deleteMeeting(deleteButton.dataset.deleteMeeting);
+  });
+
+  elements.meetingCalendar.addEventListener("click", (event) => {
+    const dayButton = event.target.closest("[data-meeting-day]");
+    if (dayButton) {
+      meetingSelectedDate = dayButton.dataset.meetingDay;
+      if (isAdmin()) {
+        elements.meetingSlotForm.elements.date.value = meetingSelectedDate;
+      }
+      if (isAdmin()) renderAdminView();
+      else renderManagerView();
+      return;
+    }
+
+    const prevButton = event.target.closest("[data-calendar-prev]");
+    if (prevButton) {
+      meetingCalendarDate = new Date(meetingCalendarDate.getFullYear(), meetingCalendarDate.getMonth() - 1, 1);
+      if (isAdmin()) renderAdminView();
+      else renderManagerView();
+      return;
+    }
+
+    const nextButton = event.target.closest("[data-calendar-next]");
+    if (nextButton) {
+      meetingCalendarDate = new Date(meetingCalendarDate.getFullYear(), meetingCalendarDate.getMonth() + 1, 1);
+      if (isAdmin()) renderAdminView();
+      else renderManagerView();
+      return;
+    }
+
+    const openDayButton = event.target.closest("[data-open-meeting-day]");
+    if (openDayButton) {
+      updateMeetingDay(openDayButton.dataset.openMeetingDay, "available");
+      return;
+    }
+
+    const closeDayButton = event.target.closest("[data-close-meeting-day]");
+    if (!closeDayButton) return;
+    updateMeetingDay(closeDayButton.dataset.closeMeetingDay, "blocked");
   });
 
   elements.form.addEventListener("submit", async (event) => {

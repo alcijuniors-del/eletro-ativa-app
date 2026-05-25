@@ -937,6 +937,114 @@ textarea:focus {
   font-size: 0.9rem;
 }
 
+.meeting-calendar {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(195, 108, 255, 0.26);
+  border-radius: 8px;
+  background: rgba(12, 9, 18, 0.72);
+  padding: 14px;
+}
+
+.calendar-toolbar,
+.calendar-selected-day {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.calendar-toolbar > div,
+.calendar-selected-day > div {
+  display: grid;
+  gap: 3px;
+  text-align: center;
+}
+
+.calendar-toolbar strong,
+.calendar-selected-day strong {
+  color: #fff;
+  text-transform: capitalize;
+}
+
+.calendar-toolbar span,
+.calendar-selected-day span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.calendar-weekdays,
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.calendar-weekdays span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.calendar-day {
+  display: grid;
+  min-height: 78px;
+  align-content: space-between;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: #fff;
+  padding: 9px;
+  text-align: left;
+}
+
+.calendar-day.empty {
+  border-color: transparent;
+  background: transparent;
+}
+
+.calendar-day strong {
+  font-size: 1rem;
+}
+
+.calendar-day span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.calendar-day.today {
+  border-color: rgba(255, 122, 24, 0.64);
+}
+
+.calendar-day.selected {
+  border-color: rgba(195, 108, 255, 0.9);
+  background: rgba(155, 57, 255, 0.2);
+  box-shadow: var(--glow-purple);
+}
+
+.calendar-day.has-available span {
+  color: #92f3bd;
+}
+
+.calendar-day.has-booked span {
+  color: #d9c2ff;
+}
+
+.calendar-day.has-blocked span {
+  color: #ffb4a7;
+}
+
+.calendar-day-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .meeting-agenda-box h3 {
   margin-bottom: 6px;
 }
@@ -1513,8 +1621,27 @@ textarea:focus {
   .control-strip,
   .form-grid,
   .personal-task-tabs,
-  .meeting-tabs {
+  .meeting-tabs,
+  .calendar-selected-day {
     grid-template-columns: 1fr;
+  }
+
+  .calendar-selected-day {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .calendar-grid {
+    gap: 6px;
+  }
+
+  .calendar-day {
+    min-height: 64px;
+    padding: 7px;
+  }
+
+  .calendar-day span {
+    font-size: 0.66rem;
   }
 
   .nav-list {
