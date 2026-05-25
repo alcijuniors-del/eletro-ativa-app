@@ -75,6 +75,7 @@ let priorityFilter = "todas";
 let managerTab = "minhas";
 let adminView = "requests";
 let personalTaskFilter = "pendentes";
+let renderedDetailId = null;
 let toastTimeout;
 let stateRefreshTimer;
 
@@ -692,6 +693,7 @@ function renderList() {
 
     button.addEventListener("click", () => {
       selectedId = request.id;
+      renderedDetailId = null;
       render();
     });
 
@@ -705,8 +707,13 @@ function renderDetail() {
   elements.detailPlaceholder.classList.toggle("hidden", Boolean(request));
   elements.detailContent.classList.toggle("hidden", !request);
 
-  if (!request) return;
+  if (!request) {
+    renderedDetailId = null;
+    return;
+  }
 
+  const keepResponseDraft = renderedDetailId === request.id && isResponseEditorActive(request);
+  renderedDetailId = request.id;
   elements.detailStatus.textContent = statusLabels[request.status];
   elements.detailStatus.className = `status-pill status-${request.status}`;
   elements.detailTitle.textContent = request.title;
@@ -727,8 +734,10 @@ function renderDetail() {
     "has-attachments",
     Array.isArray(request.responseAttachments) && request.responseAttachments.length > 0,
   );
-  elements.responseAttachmentsInput.value = "";
-  elements.responseInput.value = request.response;
+  if (!keepResponseDraft) {
+    elements.responseAttachmentsInput.value = "";
+    elements.responseInput.value = request.response;
+  }
   elements.startButton.disabled = request.status === "andamento";
   elements.startButton.innerHTML =
     request.status === "resolvida"
@@ -745,6 +754,15 @@ function renderDetail() {
     item.textContent = entry;
     elements.historyList.append(item);
   });
+}
+
+function isResponseEditorActive(request) {
+  const focusedElement = document.activeElement;
+  const responseHasFocus =
+    focusedElement === elements.responseInput || focusedElement === elements.responseAttachmentsInput;
+  const responseChanged = elements.responseInput.value !== (request.response || "");
+  const hasPendingAttachments = elements.responseAttachmentsInput.files.length > 0;
+  return responseHasFocus || responseChanged || hasPendingAttachments;
 }
 
 function renderUsers() {
@@ -794,21 +812,30 @@ function attachmentsMarkup(attachments = [], title = "Anexos") {
 
 function attachmentMarkup(attachment) {
   const name = attachment.name || (isPdfAttachment(attachment) ? "PDF anexado" : "Imagem anexada");
+  const attachmentId = escapeHtml(attachment.id || "");
 
   if (isPdfAttachment(attachment)) {
     return `
-      <a class="attachment-thumb attachment-file" href="${escapeHtml(attachment.dataUrl)}" target="_blank" rel="noreferrer">
+      <article class="attachment-thumb attachment-file">
         <span class="attachment-file-icon" aria-hidden="true">PDF</span>
         <span>${escapeHtml(name)}</span>
-      </a>
+        <div class="attachment-actions">
+          <button class="ghost-button compact-button" type="button" data-open-attachment="${attachmentId}">Abrir</button>
+          <button class="ghost-button compact-button" type="button" data-download-attachment="${attachmentId}">Baixar</button>
+        </div>
+      </article>
     `;
   }
 
   return `
-    <a class="attachment-thumb" href="${escapeHtml(attachment.dataUrl)}" target="_blank" rel="noreferrer">
+    <article class="attachment-thumb">
       <img src="${escapeHtml(attachment.dataUrl)}" alt="${escapeHtml(name)}" />
       <span>${escapeHtml(name)}</span>
-    </a>
+      <div class="attachment-actions">
+        <button class="ghost-button compact-button" type="button" data-open-attachment="${attachmentId}">Abrir</button>
+        <button class="ghost-button compact-button" type="button" data-download-attachment="${attachmentId}">Baixar</button>
+      </div>
+    </article>
   `;
 }
 
@@ -823,6 +850,67 @@ function renderAttachmentGrid(container, attachments = []) {
   container.innerHTML = items.length
     ? items.map(attachmentMarkup).join("")
     : '<p class="muted-line">Nenhum anexo.</p>';
+}
+
+function findAttachment(attachmentId) {
+  for (const request of requests) {
+    const attachments = [
+      ...(Array.isArray(request.attachments) ? request.attachments : []),
+      ...(Array.isArray(request.responseAttachments) ? request.responseAttachments : []),
+    ];
+    const match = attachments.find((attachment) => attachment.id === attachmentId);
+    if (match) return match;
+  }
+
+  return null;
+}
+
+function openAttachment(attachmentId) {
+  const attachment = findAttachment(attachmentId);
+  if (!attachment?.dataUrl) {
+    showToast("Anexo não encontrado.");
+    return;
+  }
+
+  const objectUrl = objectUrlFromDataUrl(attachment.dataUrl);
+  const opened = window.open(objectUrl, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    URL.revokeObjectURL(objectUrl);
+    showToast("Permita pop-ups para abrir o anexo.");
+    return;
+  }
+
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+}
+
+function downloadAttachment(attachmentId) {
+  const attachment = findAttachment(attachmentId);
+  if (!attachment?.dataUrl) {
+    showToast("Anexo não encontrado.");
+    return;
+  }
+
+  const objectUrl = objectUrlFromDataUrl(attachment.dataUrl);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = attachment.name || (isPdfAttachment(attachment) ? "documento.pdf" : "anexo");
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+function objectUrlFromDataUrl(dataUrl) {
+  const [header, base64Data = ""] = String(dataUrl).split(",");
+  const mimeType = header.match(/^data:([^;]+);base64$/)?.[1] || "application/octet-stream";
+  const binary = window.atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
 }
 
 async function attachmentsFromForm(formData, fieldName = "attachments") {
@@ -1076,7 +1164,7 @@ async function resolveSelected() {
   try {
     const responseAttachments = await attachmentsFromInput(elements.responseAttachmentsInput);
 
-    await updateSelected(
+    const updated = await updateSelected(
       {
         status: "resolvida",
         response,
@@ -1084,6 +1172,10 @@ async function resolveSelected() {
       },
       "Resposta salva.",
     );
+    if (updated) {
+      elements.responseInput.value = updated.response || "";
+      elements.responseAttachmentsInput.value = "";
+    }
   } catch (error) {
     showToast(error.message);
   }
@@ -1836,6 +1928,17 @@ function bindEvents() {
     const button = event.target.closest("[data-print-request]");
     if (!button) return;
     printRequestPdf(button.dataset.printRequest);
+  });
+  elements.appShell.addEventListener("click", (event) => {
+    const openButton = event.target.closest("[data-open-attachment]");
+    if (openButton) {
+      openAttachment(openButton.dataset.openAttachment);
+      return;
+    }
+
+    const downloadButton = event.target.closest("[data-download-attachment]");
+    if (!downloadButton) return;
+    downloadAttachment(downloadButton.dataset.downloadAttachment);
   });
 
   elements.openFormButton.addEventListener("click", openForm);
