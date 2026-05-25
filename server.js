@@ -18,9 +18,9 @@ const WHATSAPP_API_VERSION = process.env.WHATSAPP_API_VERSION || "v23.0";
 const ADMIN_USERNAME = normalizeUsername(process.env.ADMIN_USERNAME || "admin");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "America/Cuiaba";
-const MAX_JSON_BODY_BYTES = 12 * 1024 * 1024;
+const MAX_JSON_BODY_BYTES = 20 * 1024 * 1024;
 const MAX_ATTACHMENTS_PER_FIELD = 5;
-const MAX_ATTACHMENT_DATA_LENGTH = 3 * 1024 * 1024;
+const MAX_ATTACHMENT_DATA_LENGTH = 6 * 1024 * 1024;
 
 const sessions = new Map();
 
@@ -407,7 +407,7 @@ async function handleUpdateRequest(request, response, data, currentUser, request
 
   if (newResponseAttachments.length > 0) {
     history.push(
-      `${newResponseAttachments.length} imagem${newResponseAttachments.length === 1 ? "" : "ns"} anexada${
+      `${newResponseAttachments.length} anexo${newResponseAttachments.length === 1 ? "" : "s"} adicionado${
         newResponseAttachments.length === 1 ? "" : "s"
       } a resposta em ${formatDateTime(now)} por ${currentUser.name}`,
     );
@@ -847,21 +847,24 @@ function sanitizeAttachments(value = []) {
     }
 
     if (dataUrl.length > MAX_ATTACHMENT_DATA_LENGTH) {
-      const error = new Error("Imagem muito grande. Reduza a imagem e tente novamente.");
+      const error = new Error("Anexo muito grande. Reduza o arquivo e tente novamente.");
       error.status = 400;
       throw error;
     }
 
-    if (!/^data:image\/(png|jpe?g|webp);base64,[a-z0-9+/=]+$/i.test(dataUrl)) {
-      const error = new Error("Anexo invalido. Envie apenas imagens PNG, JPG ou WEBP.");
+    if (!/^data:(image\/(png|jpe?g|webp)|application\/pdf);base64,[a-z0-9+/=]+$/i.test(dataUrl)) {
+      const error = new Error("Anexo invalido. Envie apenas imagens PNG, JPG, WEBP ou PDF.");
       error.status = 400;
       throw error;
     }
+
+    const mimeType = dataUrl.slice(5, dataUrl.indexOf(";"));
+    const isPdf = mimeType === "application/pdf" || type === "application/pdf";
 
     return {
       id: cleanText(attachment.id, createId("attachment")).slice(0, 80),
-      name: cleanText(attachment.name, "imagem").slice(0, 120),
-      type: type.startsWith("image/") ? type : dataUrl.slice(5, dataUrl.indexOf(";")),
+      name: cleanText(attachment.name, isPdf ? "documento.pdf" : "imagem").slice(0, 120),
+      type: type.startsWith("image/") || type === "application/pdf" ? type : mimeType,
       size: Number.isFinite(Number(attachment.size)) ? Number(attachment.size) : 0,
       dataUrl,
       createdAt: cleanText(attachment.createdAt, new Date().toISOString()),
@@ -924,7 +927,7 @@ function buildWhatsAppMessage(request) {
     `Prazo de resposta: ${formatDate(request.dueDate)}`,
     "",
     `Descricao: ${request.description}`,
-    attachmentCount > 0 ? `Anexos no app: ${attachmentCount} imagem${attachmentCount === 1 ? "" : "ns"}` : "",
+    attachmentCount > 0 ? `Anexos no app: ${attachmentCount} anexo${attachmentCount === 1 ? "" : "s"}` : "",
   ].join("\n");
 }
 
@@ -937,7 +940,7 @@ function buildRequesterResponseMessage(request) {
     "Status: Resolvida",
     "",
     `Resposta: ${request.response}`,
-    attachmentCount > 0 ? `Anexos da resposta no app: ${attachmentCount} imagem${attachmentCount === 1 ? "" : "ns"}` : "",
+    attachmentCount > 0 ? `Anexos da resposta no app: ${attachmentCount} anexo${attachmentCount === 1 ? "" : "s"}` : "",
   ].join("\n");
 }
 

@@ -213,9 +213,9 @@
                 <textarea name="description" rows="6" required placeholder="Detalhe o pedido, contexto e resultado esperado."></textarea>
               </label>
               <label class="form-wide file-field">
-                Imagens da solicitação
-                <input name="attachments" type="file" accept="image/*" multiple />
-                <span class="input-hint">Até 5 imagens. Elas serão anexadas ao pedido.</span>
+                Anexos da solicitação
+                <input name="attachments" type="file" accept="image/*,application/pdf" multiple />
+                <span class="input-hint">Até 5 arquivos. Use imagens ou PDFs.</span>
               </label>
             </div>
 
@@ -272,7 +272,13 @@
               <p class="eyebrow">Controle pessoal</p>
               <h2>Minhas pendências</h2>
             </div>
-            <span id="personal-task-summary">0 pendentes</span>
+            <div class="personal-task-heading-actions">
+              <span id="personal-task-summary">0 pendentes</span>
+              <button class="ghost-button compact-button" id="print-personal-tasks-button" type="button">
+                <span aria-hidden="true">▣</span>
+                PDF
+              </button>
+            </div>
           </div>
 
           <div class="personal-tasks-layout">
@@ -386,7 +392,7 @@
               </section>
 
               <section class="detail-section hidden" id="detail-attachments-section">
-                <h3>Imagens da solicitação</h3>
+                <h3>Anexos da solicitação</h3>
                 <div class="attachment-grid" id="detail-attachments"></div>
               </section>
 
@@ -396,12 +402,12 @@
                   <textarea id="response-input" rows="6" placeholder="Informe o que foi resolvido, evidências e próximos passos."></textarea>
                 </label>
                 <div class="response-attachments-block" id="response-attachments-block">
-                  <h4>Imagens da resposta</h4>
+                  <h4>Anexos da resposta</h4>
                   <div class="attachment-grid" id="response-attachments"></div>
                   <label class="file-field response-file-field">
-                    Anexar imagens na resposta
-                    <input id="response-attachments-input" type="file" accept="image/*" multiple />
-                    <span class="input-hint">As novas imagens serão adicionadas quando você enviar a resposta.</span>
+                    Anexar arquivos na resposta
+                    <input id="response-attachments-input" type="file" accept="image/*,application/pdf" multiple />
+                    <span class="input-hint">Imagens e PDFs serão adicionados quando você enviar a resposta.</span>
                   </label>
                 </div>
                 <div class="detail-actions">
@@ -467,9 +473,9 @@
             <textarea id="description-input" name="description" rows="5" required placeholder="Detalhe o pedido, contexto e resultado esperado."></textarea>
           </label>
           <label class="form-wide file-field">
-            Imagens da solicitação
-            <input name="attachments" type="file" accept="image/*" multiple />
-            <span class="input-hint">Até 5 imagens. Elas serão anexadas ao pedido.</span>
+            Anexos da solicitação
+            <input name="attachments" type="file" accept="image/*,application/pdf" multiple />
+            <span class="input-hint">Até 5 arquivos. Use imagens ou PDFs.</span>
           </label>
         </div>
 

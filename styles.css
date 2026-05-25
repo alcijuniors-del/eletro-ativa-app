@@ -892,6 +892,20 @@ textarea:focus {
   padding: 14px;
 }
 
+.personal-task-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.personal-task-heading-actions .ghost-button {
+  min-height: 34px;
+}
+
 .personal-task-board {
   display: grid;
   gap: 12px;
@@ -1187,6 +1201,23 @@ textarea:focus {
   object-fit: cover;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.2);
+}
+
+.attachment-file {
+  align-content: start;
+}
+
+.attachment-file-icon {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  place-items: center;
+  border-radius: 6px;
+  background: rgba(255, 122, 24, 0.16);
+  color: #ffd6a6;
+  font-size: 1rem;
+  font-weight: 950;
+  letter-spacing: 0;
 }
 
 .attachment-thumb span {

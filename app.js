@@ -41,6 +41,7 @@ const priorityWeight = {
 
 const stateRefreshIntervalMs = 15000;
 const maxAttachmentFiles = 5;
+const maxPdfAttachmentBytes = 4 * 1024 * 1024;
 const maxImageDimension = 1600;
 const imageCompressionQuality = 0.84;
 
@@ -128,6 +129,7 @@ const elements = {
   personalTasksPanel: document.querySelector("#personal-tasks-panel"),
   personalTaskForm: document.querySelector("#personal-task-form"),
   personalTaskSummary: document.querySelector("#personal-task-summary"),
+  printPersonalTasksButton: document.querySelector("#print-personal-tasks-button"),
   personalTaskList: document.querySelector("#personal-task-list"),
   personalTaskEmptyState: document.querySelector("#personal-task-empty-state"),
   personalTaskTabs: document.querySelectorAll("[data-personal-filter]"),
@@ -487,11 +489,11 @@ function renderManagerDashboard() {
         <span class="chip">Prazo: ${formatDate(request.dueDate)}</span>
         <span class="chip">${responseDeadlineLabel(request.priority)}</span>
       </div>
-      ${attachmentsMarkup(attachments, "Imagens da solicitação")}
+      ${attachmentsMarkup(attachments, "Anexos da solicitação")}
       <section class="manager-response-box">
         <h3>Resposta</h3>
         <p>${response}</p>
-        ${attachmentsMarkup(responseAttachments, "Imagens da resposta")}
+        ${attachmentsMarkup(responseAttachments, "Anexos da resposta")}
       </section>
       <details class="manager-history">
         <summary>Histórico</summary>
@@ -684,7 +686,7 @@ function renderList() {
         <span class="chip">${escapeHtml(request.department)}</span>
         <span class="chip priority-${request.priority}">${priorityLabels[request.priority]}</span>
         <span class="${dueChipClass}">${dueLabel}</span>
-        ${attachmentCount ? `<span class="chip">${attachmentCount} imagem${attachmentCount === 1 ? "" : "ns"}</span>` : ""}
+        ${attachmentCount ? `<span class="chip">${attachmentCount} anexo${attachmentCount === 1 ? "" : "s"}</span>` : ""}
       </div>
     `;
 
@@ -722,7 +724,7 @@ function renderDetail() {
   );
   renderAttachmentGrid(elements.responseAttachments, request.responseAttachments);
   elements.responseAttachmentsBlock.classList.toggle(
-    "has-images",
+    "has-attachments",
     Array.isArray(request.responseAttachments) && request.responseAttachments.length > 0,
   );
   elements.responseAttachmentsInput.value = "";
@@ -777,7 +779,7 @@ function unitLabel(unit) {
   return unitLabels[String(unit || "").toUpperCase()] || "SPZ";
 }
 
-function attachmentsMarkup(attachments = [], title = "Imagens") {
+function attachmentsMarkup(attachments = [], title = "Anexos") {
   if (!Array.isArray(attachments) || attachments.length === 0) return "";
 
   return `
@@ -791,19 +793,36 @@ function attachmentsMarkup(attachments = [], title = "Imagens") {
 }
 
 function attachmentMarkup(attachment) {
+  const name = attachment.name || (isPdfAttachment(attachment) ? "PDF anexado" : "Imagem anexada");
+
+  if (isPdfAttachment(attachment)) {
+    return `
+      <a class="attachment-thumb attachment-file" href="${escapeHtml(attachment.dataUrl)}" target="_blank" rel="noreferrer">
+        <span class="attachment-file-icon" aria-hidden="true">PDF</span>
+        <span>${escapeHtml(name)}</span>
+      </a>
+    `;
+  }
+
   return `
     <a class="attachment-thumb" href="${escapeHtml(attachment.dataUrl)}" target="_blank" rel="noreferrer">
-      <img src="${escapeHtml(attachment.dataUrl)}" alt="${escapeHtml(attachment.name || "Imagem anexada")}" />
-      <span>${escapeHtml(attachment.name || "Imagem")}</span>
+      <img src="${escapeHtml(attachment.dataUrl)}" alt="${escapeHtml(name)}" />
+      <span>${escapeHtml(name)}</span>
     </a>
   `;
+}
+
+function isPdfAttachment(attachment) {
+  const type = String(attachment?.type || "").toLowerCase();
+  const dataUrl = String(attachment?.dataUrl || "").toLowerCase();
+  return type === "application/pdf" || dataUrl.startsWith("data:application/pdf;");
 }
 
 function renderAttachmentGrid(container, attachments = []) {
   const items = Array.isArray(attachments) ? attachments : [];
   container.innerHTML = items.length
     ? items.map(attachmentMarkup).join("")
-    : '<p class="muted-line">Nenhuma imagem anexada.</p>';
+    : '<p class="muted-line">Nenhum anexo.</p>';
 }
 
 async function attachmentsFromForm(formData, fieldName = "attachments") {
@@ -812,7 +831,7 @@ async function attachmentsFromForm(formData, fieldName = "attachments") {
     .filter((file) => file instanceof File && file.size > 0);
 
   if (files.length > maxAttachmentFiles) {
-    throw new Error(`Envie no máximo ${maxAttachmentFiles} imagens por vez.`);
+    throw new Error(`Envie no máximo ${maxAttachmentFiles} anexos por vez.`);
   }
 
   return Promise.all(files.map(fileToAttachment));
@@ -822,15 +841,33 @@ async function attachmentsFromInput(input) {
   const files = Array.from(input?.files || []);
 
   if (files.length > maxAttachmentFiles) {
-    throw new Error(`Envie no máximo ${maxAttachmentFiles} imagens por vez.`);
+    throw new Error(`Envie no máximo ${maxAttachmentFiles} anexos por vez.`);
   }
 
   return Promise.all(files.map(fileToAttachment));
 }
 
 async function fileToAttachment(file) {
+  const fileName = file.name || "";
+  const isPdfFile = file.type === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
+
+  if (isPdfFile) {
+    if (file.size > maxPdfAttachmentBytes) {
+      throw new Error("PDF muito grande. Envie arquivos de até 4 MB.");
+    }
+
+    return {
+      id: createClientId("attachment"),
+      name: fileName || "documento.pdf",
+      type: "application/pdf",
+      size: file.size,
+      dataUrl: await blobToDataUrl(file),
+      createdAt: new Date().toISOString(),
+    };
+  }
+
   if (!file.type.startsWith("image/")) {
-    throw new Error("Anexe apenas imagens.");
+    throw new Error("Anexe apenas imagens ou PDFs.");
   }
 
   const compressed = await compressImage(file);
@@ -891,7 +928,7 @@ function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error("Não foi possível anexar a imagem."));
+    reader.onerror = () => reject(new Error("Não foi possível anexar o arquivo."));
     reader.readAsDataURL(blob);
   });
 }
@@ -1140,6 +1177,23 @@ function printRequestPdf(requestId) {
   }, 500);
 }
 
+function printPersonalTasksPdf() {
+  const tasks = filteredPersonalTasks();
+  const printWindow = window.open("", "_blank", "width=920,height=720");
+
+  if (!printWindow) {
+    showToast("Permita pop-ups para gerar a impressão em PDF.");
+    return;
+  }
+
+  printWindow.document.write(printablePersonalTasksHtml(tasks));
+  printWindow.document.close();
+  printWindow.focus();
+  window.setTimeout(() => {
+    printWindow.print();
+  }, 500);
+}
+
 function printableRequestHtml(request) {
   const attachments = Array.isArray(request.attachments) ? request.attachments : [];
   const responseAttachments = Array.isArray(request.responseAttachments) ? request.responseAttachments : [];
@@ -1211,6 +1265,21 @@ function printableRequestHtml(request) {
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 12px;
           }
+          .documents {
+            display: grid;
+            gap: 8px;
+            margin-top: 10px;
+          }
+          .documents a {
+            display: block;
+            border: 1px solid #e5dff0;
+            border-radius: 8px;
+            color: #4c1d95;
+            font-weight: 800;
+            padding: 10px 12px;
+            text-decoration: none;
+            word-break: break-word;
+          }
           figure {
             margin: 0;
             break-inside: avoid;
@@ -1263,12 +1332,12 @@ function printableRequestHtml(request) {
           <h2>Descrição</h2>
           <div class="text-box">${escapeHtml(request.description)}</div>
 
-          ${printableImages(attachments, "Imagens da solicitação")}
+          ${printableAttachments(attachments, "Anexos da solicitação")}
 
           <h2>Resposta</h2>
           <div class="text-box">${escapeHtml(request.response || "Ainda sem resposta.")}</div>
 
-          ${printableImages(responseAttachments, "Imagens da resposta")}
+          ${printableAttachments(responseAttachments, "Anexos da resposta")}
 
           <footer>Documento gerado pelo app de solicitações Eletro Ativa.</footer>
         </main>
@@ -1276,23 +1345,185 @@ function printableRequestHtml(request) {
     </html>`;
 }
 
-function printableImages(attachments, title) {
+function printableAttachments(attachments, title) {
   if (!attachments.length) return "";
+  const images = attachments.filter((attachment) => !isPdfAttachment(attachment));
+  const documents = attachments.filter(isPdfAttachment);
 
   return `
     <h2>${escapeHtml(title)}</h2>
-    <div class="images">
-      ${attachments
-        .map(
-          (attachment) => `
-            <figure>
-              <img src="${escapeHtml(attachment.dataUrl)}" alt="${escapeHtml(attachment.name || "Imagem anexada")}" />
-              <figcaption>${escapeHtml(attachment.name || "Imagem")}</figcaption>
-            </figure>
-          `,
-        )
-        .join("")}
-    </div>
+    ${
+      images.length
+        ? `<div class="images">
+            ${images
+              .map(
+                (attachment) => `
+                  <figure>
+                    <img src="${escapeHtml(attachment.dataUrl)}" alt="${escapeHtml(attachment.name || "Imagem anexada")}" />
+                    <figcaption>${escapeHtml(attachment.name || "Imagem")}</figcaption>
+                  </figure>
+                `,
+              )
+              .join("")}
+          </div>`
+        : ""
+    }
+    ${
+      documents.length
+        ? `<div class="documents">
+            ${documents
+              .map(
+                (attachment) => `
+                  <a href="${escapeHtml(attachment.dataUrl)}" target="_blank" rel="noreferrer">
+                    PDF - ${escapeHtml(attachment.name || "Documento anexado")}
+                  </a>
+                `,
+              )
+              .join("")}
+          </div>`
+        : ""
+    }
+  `;
+}
+
+function printablePersonalTasksHtml(tasks) {
+  const generatedAt = new Date().toLocaleString("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+  const title = personalTaskFilter === "pendentes"
+    ? "Pendências pendentes"
+    : personalTaskFilter === "resolvidas"
+      ? "Pendências resolvidas"
+      : "Todas as pendências";
+
+  return `<!doctype html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8" />
+        <title>Minhas pendências</title>
+        <style>
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            background: #f4f1f8;
+            color: #1f1728;
+            font-family: Arial, Helvetica, sans-serif;
+            line-height: 1.45;
+          }
+          main {
+            width: min(860px, calc(100vw - 32px));
+            margin: 24px auto;
+            background: #fff;
+            border: 1px solid #ddd4e8;
+            border-radius: 8px;
+            padding: 28px;
+          }
+          header {
+            display: flex;
+            justify-content: space-between;
+            gap: 18px;
+            border-bottom: 3px solid #6d28d9;
+            padding-bottom: 18px;
+          }
+          h1, h2, h3, p { margin-top: 0; }
+          h1 { margin-bottom: 6px; font-size: 26px; }
+          .brand { color: #4c1d95; font-weight: 900; text-align: right; }
+          .task {
+            margin-top: 16px;
+            border: 1px solid #e5dff0;
+            border-left: 5px solid #f97316;
+            border-radius: 8px;
+            padding: 14px;
+            break-inside: avoid;
+          }
+          .task.resolved { border-left-color: #16a34a; }
+          .task.overdue { border-left-color: #dc2626; }
+          .task-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+          }
+          .pill {
+            display: inline-flex;
+            border-radius: 999px;
+            background: #ede7f7;
+            color: #4c1d95;
+            font-size: 12px;
+            font-weight: 800;
+            padding: 4px 9px;
+          }
+          .meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 10px 0;
+            color: #64566f;
+            font-size: 12px;
+            font-weight: 800;
+          }
+          .text-box {
+            white-space: pre-wrap;
+            border: 1px solid #e5dff0;
+            border-radius: 8px;
+            padding: 10px;
+          }
+          footer {
+            margin-top: 24px;
+            border-top: 1px solid #e5dff0;
+            padding-top: 12px;
+            color: #64566f;
+            font-size: 12px;
+          }
+          @media print {
+            body { background: #fff; }
+            main { width: 100%; margin: 0; border: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <main>
+          <header>
+            <div>
+              <h1>Minhas pendências</h1>
+              <p>${escapeHtml(title)} · Emitido em ${escapeHtml(generatedAt)}</p>
+            </div>
+            <div class="brand">Eletro Ativa<br />Materiais Elétricos</div>
+          </header>
+
+          ${
+            tasks.length
+              ? tasks.map(printablePersonalTask).join("")
+              : '<p class="text-box">Nenhuma pendência encontrada para este filtro.</p>'
+          }
+
+          <footer>Documento gerado pelo app de solicitações Eletro Ativa.</footer>
+        </main>
+      </body>
+    </html>`;
+}
+
+function printablePersonalTask(task) {
+  const overdue = isPersonalTaskOverdue(task);
+  const status = task.status === "resolvida" ? "Resolvida" : overdue ? "Atrasada" : "Pendente";
+  return `
+    <section class="task ${task.status === "resolvida" ? "resolved" : ""} ${overdue ? "overdue" : ""}">
+      <div class="task-header">
+        <h2>${escapeHtml(task.title)}</h2>
+        <span class="pill">${escapeHtml(status)}</span>
+      </div>
+      <div class="meta">
+        <span>Prazo: ${escapeHtml(formatDate(task.dueDate))}</span>
+        <span>Criada em: ${escapeHtml(formatDateTime(task.createdAt))}</span>
+        ${task.resolvedAt ? `<span>Resolvida em: ${escapeHtml(formatDateTime(task.resolvedAt))}</span>` : ""}
+      </div>
+      ${task.description ? `<h3>Observações</h3><div class="text-box">${escapeHtml(task.description)}</div>` : ""}
+      ${
+        task.status === "resolvida"
+          ? `<h3>Como foi resolvido</h3><div class="text-box">${escapeHtml(task.resolution || "Não informado.")}</div>`
+          : ""
+      }
+    </section>
   `;
 }
 
@@ -1585,6 +1816,7 @@ function bindEvents() {
     }
     renderAdminView();
   });
+  elements.printPersonalTasksButton.addEventListener("click", printPersonalTasksPdf);
 
   elements.priorityInput.addEventListener("change", () => {
     applyResponseDeadline(elements.form, elements.adminSlaHint);
