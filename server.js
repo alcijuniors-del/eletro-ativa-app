@@ -12,6 +12,7 @@ const HOST = process.env.HOST || "0.0.0.0";
 const PUBLIC_DIR = __dirname;
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "app-data.json");
+const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 const SESSION_COOKIE = "ea_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 const WHATSAPP_API_VERSION = process.env.WHATSAPP_API_VERSION || "v23.0";
@@ -117,6 +118,12 @@ async function handleApi(request, response, url) {
 
   if (request.method === "GET" && url.pathname === "/api/state") {
     sendJson(response, 200, buildStatePayload(data, currentUser));
+    return;
+  }
+
+  const attachmentMatch = url.pathname.match(/^\/api\/attachments\/([^/]+)$/);
+  if (attachmentMatch && request.method === "GET") {
+    await handleAttachmentDownload(response, data, currentUser, attachmentMatch[1]);
     return;
   }
 
@@ -297,7 +304,7 @@ async function handleCreateRequest(request, response, data, currentUser) {
     dueDate: responseDueDate(priority),
     status: "nova",
     response: "",
-    attachments: sanitizeAttachments(body.attachments),
+    attachments: await sanitizeAttachments(body.attachments),
     responseAttachments: [],
     createdBy: currentUser.id,
     requesterPhone: isManager ? normalizePhone(currentUser.phone) : normalizePhone(body.requesterPhone),
@@ -556,7 +563,7 @@ async function handleUpdateRequest(request, response, data, currentUser, request
   const responseText =
     body.response === undefined ? previous.response : cleanText(body.response, previous.response);
   const newResponseAttachments = Array.isArray(body.responseAttachments)
-    ? sanitizeAttachments(body.responseAttachments)
+    ? await sanitizeAttachments(body.responseAttachments)
     : [];
   const history = [...previous.history];
 
@@ -602,6 +609,7 @@ async function handleUpdateRequest(request, response, data, currentUser, request
 }
 
 async function handleDeleteRequest(response, data, requestId) {
+  const requestToDelete = data.requests.find((item) => item.id === requestId);
   const before = data.requests.length;
   data.requests = data.requests.filter((item) => item.id !== requestId);
 
@@ -610,8 +618,64 @@ async function handleDeleteRequest(response, data, requestId) {
     return;
   }
 
+  await deleteStoredAttachments(requestToDelete);
   await writeData(data);
   sendJson(response, 200, { ok: true, requests: sortRequests(data.requests) });
+}
+
+async function handleAttachmentDownload(response, data, currentUser, attachmentId) {
+  const match = findAttachmentRecord(data.requests, currentUser, attachmentId);
+
+  if (!match) {
+    sendJson(response, 404, { ok: false, error: "Anexo nao encontrado." });
+    return;
+  }
+
+  const { attachment } = match;
+  const type = String(attachment.type || "application/octet-stream");
+  const fileName = cleanText(attachment.name, isPdfMime(type) ? "documento.pdf" : "anexo");
+
+  if (attachment.storagePath) {
+    const filePath = path.resolve(DATA_DIR, attachment.storagePath);
+    const allowedRoot = path.resolve(UPLOAD_DIR);
+
+    if (filePath !== allowedRoot && !filePath.startsWith(`${allowedRoot}${path.sep}`)) {
+      sendJson(response, 400, { ok: false, error: "Caminho do anexo invalido." });
+      return;
+    }
+
+    const file = await fs.readFile(filePath).catch(() => null);
+    if (!file) {
+      sendJson(response, 404, { ok: false, error: "Arquivo do anexo nao encontrado." });
+      return;
+    }
+
+    response.writeHead(200, {
+      "Content-Type": type,
+      "Cache-Control": "private, max-age=3600",
+      "Content-Disposition": `inline; filename="${encodeHeaderFileName(fileName)}"`,
+    });
+    response.end(file);
+    return;
+  }
+
+  if (attachment.dataUrl) {
+    const decoded = decodeDataUrl(attachment.dataUrl);
+    if (!decoded) {
+      sendJson(response, 400, { ok: false, error: "Anexo invalido." });
+      return;
+    }
+
+    response.writeHead(200, {
+      "Content-Type": decoded.mimeType,
+      "Cache-Control": "private, max-age=3600",
+      "Content-Disposition": `inline; filename="${encodeHeaderFileName(fileName)}"`,
+    });
+    response.end(decoded.buffer);
+    return;
+  }
+
+  sendJson(response, 404, { ok: false, error: "Arquivo do anexo nao encontrado." });
 }
 
 async function handleCreateUser(request, response, data) {
@@ -784,18 +848,24 @@ async function readData() {
   await ensureDataFile();
   const raw = await fs.readFile(DATA_FILE, "utf8");
   const parsed = JSON.parse(raw);
-
-  return {
+  const data = {
     users: Array.isArray(parsed.users) ? parsed.users : [],
     requests: Array.isArray(parsed.requests) ? parsed.requests : [],
     personalTasks: Array.isArray(parsed.personalTasks) ? parsed.personalTasks : [],
     meetings: Array.isArray(parsed.meetings) ? parsed.meetings : [],
   };
+  const migrated = await migrateLegacyAttachments(data.requests);
+
+  if (migrated) {
+    await writeData(data);
+  }
+
+  return data;
 }
 
 async function writeData(data) {
   await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(DATA_FILE, `${JSON.stringify(data, null, 2)}\n`);
+  await fs.writeFile(DATA_FILE, `${JSON.stringify(data)}\n`);
 }
 
 async function ensureDataFile() {
@@ -1005,15 +1075,15 @@ function sanitizeTaskRequest(request = {}) {
     description: cleanText(request.description, ""),
     response: cleanText(request.response, ""),
     requesterPhone: normalizePhone(request.requesterPhone),
-    attachments: sanitizeAttachments(request.attachments),
-    responseAttachments: sanitizeAttachments(request.responseAttachments),
+    attachments: Array.isArray(request.attachments) ? request.attachments : [],
+    responseAttachments: Array.isArray(request.responseAttachments) ? request.responseAttachments : [],
   };
 }
 
-function sanitizeAttachments(value = []) {
+async function sanitizeAttachments(value = []) {
   if (!Array.isArray(value)) return [];
 
-  return value.slice(0, MAX_ATTACHMENTS_PER_FIELD).map((attachment) => {
+  const attachments = await Promise.all(value.slice(0, MAX_ATTACHMENTS_PER_FIELD).map(async (attachment) => {
     const dataUrl = String(attachment?.dataUrl || "");
     const type = String(attachment?.type || "");
 
@@ -1033,18 +1103,154 @@ function sanitizeAttachments(value = []) {
       throw error;
     }
 
-    const mimeType = dataUrl.slice(5, dataUrl.indexOf(";"));
+    const decoded = decodeDataUrl(dataUrl);
+    if (!decoded) {
+      const error = new Error("Anexo invalido. Envie apenas imagens PNG, JPG, WEBP ou PDF.");
+      error.status = 400;
+      throw error;
+    }
+
+    const mimeType = decoded.mimeType;
     const isPdf = mimeType === "application/pdf" || type === "application/pdf";
+    const id = cleanText(attachment.id, createId("attachment")).replace(/[^a-z0-9_-]/gi, "").slice(0, 80);
+    const extension = attachmentExtension(mimeType);
+    const fileName = `${id}.${extension}`;
+
+    await fs.mkdir(UPLOAD_DIR, { recursive: true });
+    await fs.writeFile(path.join(UPLOAD_DIR, fileName), decoded.buffer);
 
     return {
-      id: cleanText(attachment.id, createId("attachment")).slice(0, 80),
+      id,
       name: cleanText(attachment.name, isPdf ? "documento.pdf" : "imagem").slice(0, 120),
       type: type.startsWith("image/") || type === "application/pdf" ? type : mimeType,
-      size: Number.isFinite(Number(attachment.size)) ? Number(attachment.size) : 0,
-      dataUrl,
+      size: decoded.buffer.length,
+      storagePath: `uploads/${fileName}`,
+      url: `/api/attachments/${encodeURIComponent(id)}`,
       createdAt: cleanText(attachment.createdAt, new Date().toISOString()),
     };
-  }).filter(Boolean);
+  }));
+
+  return attachments.filter(Boolean);
+}
+
+async function migrateLegacyAttachments(requests) {
+  let migrated = false;
+
+  for (const taskRequest of requests) {
+    for (const field of ["attachments", "responseAttachments"]) {
+      const attachments = Array.isArray(taskRequest[field]) ? taskRequest[field] : [];
+
+      for (const attachment of attachments) {
+        if (!attachment?.dataUrl || attachment.storagePath) continue;
+
+        const stored = await storeAttachmentDataUrl(attachment);
+        Object.assign(attachment, stored);
+        delete attachment.dataUrl;
+        migrated = true;
+      }
+    }
+  }
+
+  return migrated;
+}
+
+async function storeAttachmentDataUrl(attachment) {
+  const dataUrl = String(attachment?.dataUrl || "");
+
+  if (dataUrl.length > MAX_ATTACHMENT_DATA_LENGTH) {
+    const error = new Error("Anexo muito grande. Reduza o arquivo e tente novamente.");
+    error.status = 400;
+    throw error;
+  }
+
+  if (!/^data:(image\/(png|jpe?g|webp)|application\/pdf);base64,[a-z0-9+/=]+$/i.test(dataUrl)) {
+    const error = new Error("Anexo invalido. Envie apenas imagens PNG, JPG, WEBP ou PDF.");
+    error.status = 400;
+    throw error;
+  }
+
+  const type = String(attachment?.type || "");
+  const decoded = decodeDataUrl(dataUrl);
+  if (!decoded) {
+    const error = new Error("Anexo invalido. Envie apenas imagens PNG, JPG, WEBP ou PDF.");
+    error.status = 400;
+    throw error;
+  }
+
+  const mimeType = decoded.mimeType;
+  const isPdf = mimeType === "application/pdf" || type === "application/pdf";
+  const id = cleanText(attachment.id, createId("attachment")).replace(/[^a-z0-9_-]/gi, "").slice(0, 80);
+  const extension = attachmentExtension(mimeType);
+  const fileName = `${id}.${extension}`;
+
+  await fs.mkdir(UPLOAD_DIR, { recursive: true });
+  await fs.writeFile(path.join(UPLOAD_DIR, fileName), decoded.buffer);
+
+  return {
+    id,
+    name: cleanText(attachment.name, isPdf ? "documento.pdf" : "imagem").slice(0, 120),
+    type: type.startsWith("image/") || type === "application/pdf" ? type : mimeType,
+    size: decoded.buffer.length,
+    storagePath: `uploads/${fileName}`,
+    url: `/api/attachments/${encodeURIComponent(id)}`,
+    createdAt: cleanText(attachment.createdAt, new Date().toISOString()),
+  };
+}
+
+function decodeDataUrl(dataUrl) {
+  const match = String(dataUrl).match(/^data:(image\/(?:png|jpe?g|webp)|application\/pdf);base64,([a-z0-9+/=]+)$/i);
+  if (!match) return null;
+
+  return {
+    mimeType: match[1],
+    buffer: Buffer.from(match[2], "base64"),
+  };
+}
+
+function attachmentExtension(mimeType) {
+  if (mimeType === "application/pdf") return "pdf";
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/webp") return "webp";
+  return "jpg";
+}
+
+function findAttachmentRecord(requests, currentUser, attachmentId) {
+  for (const taskRequest of requests) {
+    if (currentUser.role !== "admin" && taskRequest.createdBy !== currentUser.id) continue;
+
+    const attachments = [
+      ...(Array.isArray(taskRequest.attachments) ? taskRequest.attachments : []),
+      ...(Array.isArray(taskRequest.responseAttachments) ? taskRequest.responseAttachments : []),
+    ];
+    const attachment = attachments.find((item) => item.id === attachmentId);
+    if (attachment) return { request: taskRequest, attachment };
+  }
+
+  return null;
+}
+
+function isPdfMime(type) {
+  return String(type || "").toLowerCase() === "application/pdf";
+}
+
+function encodeHeaderFileName(fileName) {
+  return String(fileName).replace(/["\r\n]/g, "_");
+}
+
+async function deleteStoredAttachments(taskRequest) {
+  const attachments = [
+    ...(Array.isArray(taskRequest?.attachments) ? taskRequest.attachments : []),
+    ...(Array.isArray(taskRequest?.responseAttachments) ? taskRequest.responseAttachments : []),
+  ];
+  const allowedRoot = path.resolve(UPLOAD_DIR);
+
+  await Promise.all(attachments.map(async (attachment) => {
+    if (!attachment.storagePath) return;
+
+    const filePath = path.resolve(DATA_DIR, attachment.storagePath);
+    if (filePath !== allowedRoot && !filePath.startsWith(`${allowedRoot}${path.sep}`)) return;
+    await fs.unlink(filePath).catch(() => null);
+  }));
 }
 
 function sortRequests(items) {

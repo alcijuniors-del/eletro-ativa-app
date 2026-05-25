@@ -51,7 +51,7 @@ const priorityWeight = {
   baixa: 3,
 };
 
-const stateRefreshIntervalMs = 15000;
+const stateRefreshIntervalMs = 30000;
 const maxAttachmentFiles = 5;
 const maxPdfAttachmentBytes = 4 * 1024 * 1024;
 const maxImageDimension = 1600;
@@ -1158,6 +1158,7 @@ function attachmentsMarkup(attachments = [], title = "Anexos") {
 function attachmentMarkup(attachment) {
   const name = attachment.name || (isPdfAttachment(attachment) ? "PDF anexado" : "Imagem anexada");
   const attachmentId = escapeHtml(attachment.id || "");
+  const source = attachmentSource(attachment);
 
   if (isPdfAttachment(attachment)) {
     return `
@@ -1174,7 +1175,7 @@ function attachmentMarkup(attachment) {
 
   return `
     <article class="attachment-thumb">
-      <img src="${escapeHtml(attachment.dataUrl)}" alt="${escapeHtml(name)}" />
+      <img src="${escapeHtml(source)}" alt="${escapeHtml(name)}" />
       <span>${escapeHtml(name)}</span>
       <div class="attachment-actions">
         <button class="ghost-button compact-button" type="button" data-open-attachment="${attachmentId}">Abrir</button>
@@ -1188,6 +1189,10 @@ function isPdfAttachment(attachment) {
   const type = String(attachment?.type || "").toLowerCase();
   const dataUrl = String(attachment?.dataUrl || "").toLowerCase();
   return type === "application/pdf" || dataUrl.startsWith("data:application/pdf;");
+}
+
+function attachmentSource(attachment) {
+  return String(attachment?.url || attachment?.dataUrl || "");
 }
 
 function renderAttachmentGrid(container, attachments = []) {
@@ -1212,37 +1217,43 @@ function findAttachment(attachmentId) {
 
 function openAttachment(attachmentId) {
   const attachment = findAttachment(attachmentId);
-  if (!attachment?.dataUrl) {
+  const source = attachmentSource(attachment);
+  if (!source) {
     showToast("Anexo não encontrado.");
     return;
   }
 
-  const objectUrl = objectUrlFromDataUrl(attachment.dataUrl);
+  const objectUrl = source.startsWith("data:") ? objectUrlFromDataUrl(source) : source;
   const opened = window.open(objectUrl, "_blank", "noopener,noreferrer");
   if (!opened) {
-    URL.revokeObjectURL(objectUrl);
+    if (objectUrl.startsWith("blob:")) URL.revokeObjectURL(objectUrl);
     showToast("Permita pop-ups para abrir o anexo.");
     return;
   }
 
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+  if (objectUrl.startsWith("blob:")) {
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+  }
 }
 
 function downloadAttachment(attachmentId) {
   const attachment = findAttachment(attachmentId);
-  if (!attachment?.dataUrl) {
+  const source = attachmentSource(attachment);
+  if (!source) {
     showToast("Anexo não encontrado.");
     return;
   }
 
-  const objectUrl = objectUrlFromDataUrl(attachment.dataUrl);
+  const objectUrl = source.startsWith("data:") ? objectUrlFromDataUrl(source) : source;
   const link = document.createElement("a");
   link.href = objectUrl;
   link.download = attachment.name || (isPdfAttachment(attachment) ? "documento.pdf" : "anexo");
   document.body.append(link);
   link.click();
   link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  if (objectUrl.startsWith("blob:")) {
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
 }
 
 function objectUrlFromDataUrl(dataUrl) {
@@ -1908,7 +1919,7 @@ function printableAttachments(attachments, title) {
               .map(
                 (attachment) => `
                   <figure>
-                    <img src="${escapeHtml(attachment.dataUrl)}" alt="${escapeHtml(attachment.name || "Imagem anexada")}" />
+                    <img src="${escapeHtml(attachmentSource(attachment))}" alt="${escapeHtml(attachment.name || "Imagem anexada")}" />
                     <figcaption>${escapeHtml(attachment.name || "Imagem")}</figcaption>
                   </figure>
                 `,
@@ -1923,7 +1934,7 @@ function printableAttachments(attachments, title) {
             ${documents
               .map(
                 (attachment) => `
-                  <a href="${escapeHtml(attachment.dataUrl)}" target="_blank" rel="noreferrer">
+                  <a href="${escapeHtml(attachmentSource(attachment))}" target="_blank" rel="noreferrer">
                     PDF - ${escapeHtml(attachment.name || "Documento anexado")}
                   </a>
                 `,
@@ -2125,6 +2136,7 @@ function stopStateRefresh() {
 
 async function refreshStateFromServer({ notify = false } = {}) {
   if (!currentUser) return;
+  if (!notify && document.hidden) return;
 
   try {
     const payload = await apiFetch("/api/state");
