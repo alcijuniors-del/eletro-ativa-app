@@ -131,6 +131,31 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/personal-tasks") {
+    requireAdmin(currentUser);
+    sendJson(response, 200, { ok: true, personalTasks: sortPersonalTasks(data.personalTasks) });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/personal-tasks") {
+    requireAdmin(currentUser);
+    await handleCreatePersonalTask(request, response, data, currentUser);
+    return;
+  }
+
+  const personalTaskMatch = url.pathname.match(/^\/api\/personal-tasks\/([^/]+)$/);
+  if (personalTaskMatch && request.method === "PATCH") {
+    requireAdmin(currentUser);
+    await handleUpdatePersonalTask(request, response, data, currentUser, personalTaskMatch[1]);
+    return;
+  }
+
+  if (personalTaskMatch && request.method === "DELETE") {
+    requireAdmin(currentUser);
+    await handleDeletePersonalTask(response, data, personalTaskMatch[1]);
+    return;
+  }
+
   const requestMatch = url.pathname.match(/^\/api\/requests\/([^/]+)$/);
   if (requestMatch && request.method === "PATCH") {
     requireAdmin(currentUser);
@@ -265,6 +290,92 @@ async function handleCreateRequest(request, response, data, currentUser) {
         : data.requests.filter((item) => item.createdBy === currentUser.id),
     notification,
   });
+}
+
+async function handleCreatePersonalTask(request, response, data, currentUser) {
+  const body = await readJsonBody(request);
+  const now = new Date().toISOString();
+  const title = cleanText(body.title, "Pendencia sem titulo");
+  const dueDate = normalizeDateInput(body.dueDate, todayInBusinessTimezone());
+
+  const personalTask = {
+    id: createId("personal"),
+    title,
+    description: cleanText(body.description, ""),
+    dueDate,
+    status: "pendente",
+    resolution: "",
+    createdBy: currentUser.id,
+    createdAt: now,
+    updatedAt: now,
+    resolvedAt: "",
+  };
+
+  data.personalTasks = [personalTask, ...data.personalTasks];
+  await writeData(data);
+  sendJson(response, 201, {
+    ok: true,
+    personalTask,
+    personalTasks: sortPersonalTasks(data.personalTasks),
+  });
+}
+
+async function handleUpdatePersonalTask(request, response, data, currentUser, taskId) {
+  const body = await readJsonBody(request);
+  const index = data.personalTasks.findIndex((item) => item.id === taskId);
+
+  if (index === -1) {
+    sendJson(response, 404, { ok: false, error: "Pendencia nao encontrada." });
+    return;
+  }
+
+  const previous = data.personalTasks[index];
+  const now = new Date().toISOString();
+  const nextStatus = normalizePersonalTaskStatus(body.status || previous.status);
+  const resolution =
+    body.resolution === undefined ? previous.resolution : cleanText(body.resolution, "");
+
+  if (nextStatus === "resolvida" && !resolution.trim()) {
+    sendJson(response, 400, { ok: false, error: "Informe como a pendencia foi resolvida." });
+    return;
+  }
+
+  const personalTask = {
+    ...previous,
+    title: body.title === undefined ? previous.title : cleanText(body.title, previous.title),
+    description:
+      body.description === undefined ? previous.description : cleanText(body.description, ""),
+    dueDate:
+      body.dueDate === undefined
+        ? previous.dueDate
+        : normalizeDateInput(body.dueDate, previous.dueDate),
+    status: nextStatus,
+    resolution: nextStatus === "resolvida" ? resolution : "",
+    updatedAt: now,
+    resolvedAt: nextStatus === "resolvida" ? previous.resolvedAt || now : "",
+    resolvedBy: nextStatus === "resolvida" ? currentUser.id : "",
+  };
+
+  data.personalTasks[index] = personalTask;
+  await writeData(data);
+  sendJson(response, 200, {
+    ok: true,
+    personalTask,
+    personalTasks: sortPersonalTasks(data.personalTasks),
+  });
+}
+
+async function handleDeletePersonalTask(response, data, taskId) {
+  const before = data.personalTasks.length;
+  data.personalTasks = data.personalTasks.filter((item) => item.id !== taskId);
+
+  if (data.personalTasks.length === before) {
+    sendJson(response, 404, { ok: false, error: "Pendencia nao encontrada." });
+    return;
+  }
+
+  await writeData(data);
+  sendJson(response, 200, { ok: true, personalTasks: sortPersonalTasks(data.personalTasks) });
 }
 
 async function handleUpdateRequest(request, response, data, currentUser, requestId) {
@@ -501,6 +612,7 @@ function buildStatePayload(data, currentUser) {
     user,
     requests: visibleRequests,
     users: isAdmin ? publicUsers(data.users) : [],
+    personalTasks: isAdmin ? sortPersonalTasks(data.personalTasks) : [],
   };
 }
 
@@ -512,6 +624,7 @@ async function readData() {
   return {
     users: Array.isArray(parsed.users) ? parsed.users : [],
     requests: Array.isArray(parsed.requests) ? parsed.requests : [],
+    personalTasks: Array.isArray(parsed.personalTasks) ? parsed.personalTasks : [],
   };
 }
 
@@ -545,6 +658,7 @@ async function ensureDataFile() {
       },
     ],
     requests: [],
+    personalTasks: [],
   };
 
   await writeData(initialData);
@@ -660,11 +774,24 @@ function normalizeStatus(value) {
   return ["nova", "andamento", "resolvida"].includes(value) ? value : "nova";
 }
 
+function normalizePersonalTaskStatus(value) {
+  return ["pendente", "resolvida"].includes(value) ? value : "pendente";
+}
+
 function normalizeUnit(value) {
   const unit = String(value || "")
     .trim()
     .toUpperCase();
   return unitLabels[unit] ? unit : "SPZ";
+}
+
+function normalizeDateInput(value, fallback) {
+  const dateText = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateText) ? dateText : fallback;
+}
+
+function todayInBusinessTimezone() {
+  return toDateInputValue(businessToday());
 }
 
 function responseDueDate(priority) {
@@ -750,6 +877,24 @@ function sortRequests(items) {
 
     const createdDiff = new Date(right.createdAt || 0) - new Date(left.createdAt || 0);
     if (createdDiff !== 0) return createdDiff;
+
+    return String(right.id || "").localeCompare(String(left.id || ""));
+  });
+}
+
+function sortPersonalTasks(items) {
+  return [...items].sort((left, right) => {
+    if (left.status !== right.status) {
+      return left.status === "pendente" ? -1 : 1;
+    }
+
+    if (left.status === "pendente") {
+      const dueDiff = String(left.dueDate || "").localeCompare(String(right.dueDate || ""));
+      if (dueDiff !== 0) return dueDiff;
+    }
+
+    const updatedDiff = new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
+    if (updatedDiff !== 0) return updatedDiff;
 
     return String(right.id || "").localeCompare(String(left.id || ""));
   });

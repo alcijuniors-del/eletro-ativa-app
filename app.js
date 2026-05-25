@@ -65,12 +65,15 @@ const daysFromToday = (days) => {
 
 let requests = [];
 let users = [];
+let personalTasks = [];
 let currentUser = null;
 let selectedId = null;
 let currentStatus = "todas";
 let searchTerm = "";
 let priorityFilter = "todas";
 let managerTab = "minhas";
+let adminView = "requests";
+let personalTaskFilter = "pendentes";
 let toastTimeout;
 let stateRefreshTimer;
 
@@ -87,6 +90,9 @@ const elements = {
   appTitle: document.querySelector("#app-title"),
   appEyebrow: document.querySelector("#app-eyebrow"),
   adminOnly: document.querySelectorAll("[data-admin-only]"),
+  requestsAdminView: document.querySelectorAll("[data-requests-admin-view]"),
+  requestsViewButton: document.querySelector("#requests-view-button"),
+  personalTasksButton: document.querySelector("#personal-tasks-button"),
   navItems: document.querySelectorAll(".nav-item"),
   requestList: document.querySelector("#request-list"),
   emptyState: document.querySelector("#empty-state"),
@@ -119,6 +125,15 @@ const elements = {
   managerAllCount: document.querySelector("#manager-all-count"),
   managerWaitingCount: document.querySelector("#manager-waiting-count"),
   managerResolvedCount: document.querySelector("#manager-resolved-count"),
+  personalTasksPanel: document.querySelector("#personal-tasks-panel"),
+  personalTaskForm: document.querySelector("#personal-task-form"),
+  personalTaskSummary: document.querySelector("#personal-task-summary"),
+  personalTaskList: document.querySelector("#personal-task-list"),
+  personalTaskEmptyState: document.querySelector("#personal-task-empty-state"),
+  personalTaskTabs: document.querySelectorAll("[data-personal-filter]"),
+  personalPendingCount: document.querySelector("#personal-pending-count"),
+  personalResolvedCount: document.querySelector("#personal-resolved-count"),
+  personalAllCount: document.querySelector("#personal-all-count"),
   userModal: document.querySelector("#user-modal"),
   userForm: document.querySelector("#user-form"),
   userModalTitle: document.querySelector("#user-modal-title"),
@@ -177,6 +192,7 @@ async function loadSession() {
     currentUser = null;
     requests = [];
     users = [];
+    personalTasks = [];
     selectedId = null;
   }
 }
@@ -184,7 +200,7 @@ async function loadSession() {
 function renderCurrentView() {
   if (!currentUser) return;
   if (isAdmin()) {
-    render();
+    renderAdminView();
     renderUsers();
     return;
   }
@@ -195,6 +211,7 @@ function applyState(payload) {
   currentUser = payload.user ?? currentUser;
   requests = Array.isArray(payload.requests) ? payload.requests : requests;
   users = Array.isArray(payload.users) ? payload.users : users;
+  personalTasks = Array.isArray(payload.personalTasks) ? payload.personalTasks : personalTasks;
 
   if (!requests.some((request) => request.id === selectedId)) {
     selectedId = requests[0]?.id ?? null;
@@ -355,9 +372,8 @@ function renderAuth() {
   elements.managerHistoryPanel.classList.toggle("hidden", userIsAdmin);
 
   if (userIsAdmin) {
-    elements.appEyebrow.textContent = "Painel das lojas";
-    elements.appTitle.textContent = "Solicitações das lojas";
-    render();
+    elements.personalTaskForm.elements.dueDate.min = todayIso();
+    renderAdminView();
     renderUsers();
     return;
   }
@@ -367,6 +383,29 @@ function renderAuth() {
   elements.managerAccountLabel.textContent = `${currentUser.name} · ${unitLabel(currentUser.unit)} · ${currentUser.department}`;
   applyResponseDeadline(elements.managerForm, elements.managerSlaHint);
   renderManagerDashboard();
+}
+
+function renderAdminView() {
+  if (!isAdmin()) return;
+
+  const showingPersonalTasks = adminView === "personal";
+  elements.requestsAdminView.forEach((element) => {
+    element.classList.toggle("hidden", showingPersonalTasks);
+  });
+  elements.personalTasksPanel.classList.toggle("hidden", !showingPersonalTasks);
+  elements.requestsViewButton.classList.toggle("active-view-button", !showingPersonalTasks);
+  elements.personalTasksButton.classList.toggle("active-view-button", showingPersonalTasks);
+
+  if (showingPersonalTasks) {
+    elements.appEyebrow.textContent = "Controle pessoal";
+    elements.appTitle.textContent = "Minhas pendências";
+    renderPersonalTasks();
+    return;
+  }
+
+  elements.appEyebrow.textContent = "Painel das lojas";
+  elements.appTitle.textContent = "Solicitações das lojas";
+  render();
 }
 
 function render() {
@@ -470,6 +509,118 @@ function renderManagerDashboard() {
 
     elements.managerRequestList.append(item);
   });
+}
+
+function renderPersonalTasks() {
+  if (!isAdmin()) return;
+
+  const pendingTasks = personalTasks.filter((task) => task.status !== "resolvida");
+  const resolvedTasks = personalTasks.filter((task) => task.status === "resolvida");
+  const visibleTasks = filteredPersonalTasks();
+
+  elements.personalPendingCount.textContent = pendingTasks.length;
+  elements.personalResolvedCount.textContent = resolvedTasks.length;
+  elements.personalAllCount.textContent = personalTasks.length;
+  elements.personalTaskSummary.textContent = `${pendingTasks.length} ${
+    pendingTasks.length === 1 ? "pendente" : "pendentes"
+  }`;
+
+  elements.personalTaskTabs.forEach((button) => {
+    button.classList.toggle("active", button.dataset.personalFilter === personalTaskFilter);
+  });
+
+  elements.personalTaskList.innerHTML = "";
+  elements.personalTaskEmptyState.classList.toggle("hidden", visibleTasks.length > 0);
+  elements.personalTaskEmptyState.querySelector("strong").textContent =
+    personalTaskFilter === "resolvidas"
+      ? "Nenhuma pendência resolvida"
+      : "Nenhuma pendência pessoal";
+  elements.personalTaskEmptyState.querySelector("span").textContent =
+    personalTaskFilter === "resolvidas"
+      ? "Quando você marcar uma pendência como resolvida, ela aparece aqui."
+      : "Cadastre uma pendência para acompanhar sem misturar com os pedidos dos gerentes.";
+
+  visibleTasks.forEach((task) => {
+    const card = document.createElement("article");
+    const overdue = isPersonalTaskOverdue(task);
+    const statusClass = task.status === "resolvida" ? "status-resolvida" : overdue ? "status-nova" : "status-andamento";
+    card.className = `personal-task-card ${task.status === "resolvida" ? "resolved" : ""} ${overdue ? "overdue" : ""}`;
+    card.dataset.personalTaskId = task.id;
+
+    card.innerHTML = `
+      <div class="request-title-row">
+        <div>
+          <strong>${escapeHtml(task.title)}</strong>
+          <span class="manager-request-date">Criada em ${formatDateTime(task.createdAt)}</span>
+        </div>
+        <span class="status-pill ${statusClass}">${task.status === "resolvida" ? "Resolvida" : overdue ? "Atrasada" : "Pendente"}</span>
+      </div>
+      ${task.description ? `<p class="request-description">${escapeHtml(task.description)}</p>` : ""}
+      <div class="request-meta">
+        <span class="chip">Prazo: ${formatDate(task.dueDate)}</span>
+        ${overdue ? '<span class="chip danger-chip">Atrasada</span>' : ""}
+      </div>
+      ${
+        task.status === "resolvida"
+          ? `<section class="manager-response-box">
+              <h3>Como foi resolvido</h3>
+              <p>${escapeHtml(task.resolution)}</p>
+              <span class="manager-request-date">Resolvida em ${formatDateTime(task.resolvedAt || task.updatedAt)}</span>
+            </section>`
+          : `<label class="response-box personal-resolution-box">
+              Como foi resolvido
+              <textarea rows="4" data-resolution-input placeholder="Descreva a solução antes de marcar como resolvida."></textarea>
+            </label>
+            <div class="manager-card-actions">
+              <button class="primary-button compact-button" type="button" data-resolve-personal-task="${escapeHtml(task.id)}">
+                <span aria-hidden="true">✓</span>
+                Marcar resolvida
+              </button>
+              <button class="ghost-button compact-button" type="button" data-delete-personal-task="${escapeHtml(task.id)}">Excluir</button>
+            </div>`
+      }
+      ${
+        task.status === "resolvida"
+          ? `<div class="manager-card-actions">
+              <button class="ghost-button compact-button" type="button" data-delete-personal-task="${escapeHtml(task.id)}">Excluir</button>
+            </div>`
+          : ""
+      }
+    `;
+
+    elements.personalTaskList.append(card);
+  });
+}
+
+function filteredPersonalTasks() {
+  return personalTasks
+    .filter((task) => {
+      if (personalTaskFilter === "pendentes") return task.status !== "resolvida";
+      if (personalTaskFilter === "resolvidas") return task.status === "resolvida";
+      return true;
+    })
+    .sort(comparePersonalTasks);
+}
+
+function comparePersonalTasks(left, right) {
+  if (left.status !== right.status) {
+    return left.status === "pendente" ? -1 : 1;
+  }
+
+  if (left.status !== "resolvida") {
+    const dueDiff = String(left.dueDate || "").localeCompare(String(right.dueDate || ""));
+    if (dueDiff !== 0) return dueDiff;
+  }
+
+  const updatedDiff =
+    new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
+  if (updatedDiff !== 0) return updatedDiff;
+
+  return String(right.id || "").localeCompare(String(left.id || ""));
+}
+
+function isPersonalTaskOverdue(task) {
+  return task.status !== "resolvida" && task.dueDate < todayIso();
 }
 
 function renderCounts() {
@@ -774,6 +925,75 @@ async function addRequest(formData) {
   } catch (error) {
     showToast(error.message);
     return false;
+  }
+}
+
+async function createPersonalTask(formData) {
+  if (!isAdmin()) return false;
+
+  const payload = {
+    title: formData.get("title").trim(),
+    dueDate: formData.get("dueDate"),
+    description: formData.get("description")?.trim() ?? "",
+  };
+
+  try {
+    const result = await apiFetch("/api/personal-tasks", jsonRequest("POST", payload));
+    personalTasks = result.personalTasks;
+    elements.personalTaskForm.reset();
+    elements.personalTaskForm.elements.dueDate.min = todayIso();
+    renderAdminView();
+    showToast("Pendência lançada.");
+    return true;
+  } catch (error) {
+    showToast(error.message);
+    return false;
+  }
+}
+
+async function resolvePersonalTask(taskId, resolution) {
+  if (!isAdmin()) return;
+
+  if (!resolution.trim()) {
+    showToast("Descreva como foi resolvido antes de concluir.");
+    return;
+  }
+
+  try {
+    const result = await apiFetch(
+      `/api/personal-tasks/${encodeURIComponent(taskId)}`,
+      jsonRequest("PATCH", {
+        status: "resolvida",
+        resolution,
+      }),
+    );
+    personalTasks = result.personalTasks;
+    personalTaskFilter = "resolvidas";
+    renderAdminView();
+    showToast("Pendência marcada como resolvida.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function deletePersonalTask(taskId) {
+  if (!isAdmin()) return;
+
+  const task = personalTasks.find((item) => item.id === taskId);
+  if (!task) return;
+
+  const confirmed = window.confirm(`Excluir a pendência "${task.title}"?`);
+  if (!confirmed) return;
+
+  try {
+    const result = await apiFetch(`/api/personal-tasks/${encodeURIComponent(taskId)}`, {
+      method: "DELETE",
+    });
+    personalTasks = result.personalTasks;
+    renderAdminView();
+    showToast("Pendência excluída.");
+  } catch (error) {
+    showToast(error.message);
   }
 }
 
@@ -1103,7 +1323,9 @@ async function logout() {
   currentUser = null;
   requests = [];
   users = [];
+  personalTasks = [];
   selectedId = null;
+  adminView = "requests";
   stopStateRefresh();
   renderAuth();
 }
@@ -1350,6 +1572,20 @@ function bindEvents() {
     render();
   });
 
+  elements.requestsViewButton.addEventListener("click", () => {
+    adminView = "requests";
+    renderAdminView();
+  });
+
+  elements.personalTasksButton.addEventListener("click", () => {
+    adminView = "personal";
+    elements.personalTaskForm.elements.dueDate.min = todayIso();
+    if (!elements.personalTaskForm.elements.dueDate.value) {
+      elements.personalTaskForm.elements.dueDate.value = todayIso();
+    }
+    renderAdminView();
+  });
+
   elements.priorityInput.addEventListener("change", () => {
     applyResponseDeadline(elements.form, elements.adminSlaHint);
   });
@@ -1382,6 +1618,32 @@ function bindEvents() {
   elements.printButton.addEventListener("click", printSelectedRequest);
   elements.deleteButton.addEventListener("click", deleteSelected);
   elements.managerForm.addEventListener("submit", submitManagerRequest);
+
+  elements.personalTaskForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await createPersonalTask(new FormData(elements.personalTaskForm));
+  });
+
+  elements.personalTaskTabs.forEach((button) => {
+    button.addEventListener("click", () => {
+      personalTaskFilter = button.dataset.personalFilter;
+      renderPersonalTasks();
+    });
+  });
+
+  elements.personalTaskList.addEventListener("click", (event) => {
+    const resolveButton = event.target.closest("[data-resolve-personal-task]");
+    if (resolveButton) {
+      const card = resolveButton.closest("[data-personal-task-id]");
+      const resolutionInput = card?.querySelector("[data-resolution-input]");
+      resolvePersonalTask(resolveButton.dataset.resolvePersonalTask, resolutionInput?.value ?? "");
+      return;
+    }
+
+    const deleteButton = event.target.closest("[data-delete-personal-task]");
+    if (!deleteButton) return;
+    deletePersonalTask(deleteButton.dataset.deletePersonalTask);
+  });
 
   elements.form.addEventListener("submit", async (event) => {
     event.preventDefault();

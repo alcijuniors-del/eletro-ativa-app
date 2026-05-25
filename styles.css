@@ -515,6 +515,13 @@ h3 {
   box-shadow: var(--glow-purple);
 }
 
+.active-view-button {
+  border-color: rgba(195, 108, 255, 0.72);
+  background: rgba(155, 57, 255, 0.18);
+  color: #fff;
+  box-shadow: var(--glow-purple);
+}
+
 .primary-button:disabled,
 .ghost-button:disabled {
   cursor: not-allowed;
@@ -688,7 +695,8 @@ textarea:focus {
 }
 
 .manager-submit-panel,
-.manager-history-panel {
+.manager-history-panel,
+.personal-tasks-panel {
   display: grid;
   gap: 18px;
   max-width: 1040px;
@@ -706,6 +714,13 @@ textarea:focus {
   background:
     linear-gradient(140deg, rgba(54, 226, 154, 0.1), transparent 34%),
     linear-gradient(320deg, rgba(155, 57, 255, 0.16), transparent 42%),
+    var(--surface);
+}
+
+.personal-tasks-panel {
+  background:
+    linear-gradient(140deg, rgba(255, 122, 24, 0.12), transparent 34%),
+    linear-gradient(320deg, rgba(54, 226, 154, 0.1), transparent 42%),
     var(--surface);
 }
 
@@ -854,11 +869,77 @@ textarea:focus {
 
 .manager-card-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 8px;
 }
 
 .inline-form {
   padding: 0;
+}
+
+.personal-tasks-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.personal-task-form {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 14px;
+}
+
+.personal-task-board {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.personal-task-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.personal-task-list {
+  display: grid;
+  gap: 12px;
+}
+
+.personal-task-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--orange);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.055), transparent),
+    rgba(14, 12, 20, 0.82);
+  padding: 14px;
+}
+
+.personal-task-card.overdue {
+  border-left-color: var(--red);
+}
+
+.personal-task-card.resolved {
+  border-left-color: var(--green);
+}
+
+.personal-resolution-box {
+  display: grid;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 850;
+}
+
+.danger-chip {
+  border-color: rgba(255, 92, 92, 0.36);
+  background: rgba(255, 92, 92, 0.12);
+  color: #ffb4b4;
 }
 
 .requests-panel,
@@ -1272,6 +1353,10 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
+  .personal-tasks-layout {
+    grid-template-columns: 1fr;
+  }
+
   .detail-panel {
     position: static;
   }
@@ -1317,7 +1402,8 @@ textarea:focus {
 
   .metrics,
   .control-strip,
-  .form-grid {
+  .form-grid,
+  .personal-task-tabs {
     grid-template-columns: 1fr;
   }
 
@@ -1330,7 +1416,8 @@ textarea:focus {
     min-height: auto;
   }
 
-  .manager-submit-panel {
+  .manager-submit-panel,
+  .personal-tasks-panel {
     max-width: none;
   }
 }

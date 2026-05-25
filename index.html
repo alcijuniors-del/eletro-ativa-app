@@ -82,7 +82,7 @@
           <button class="ghost-button compact-button" id="logout-button" type="button">Sair</button>
         </div>
 
-        <nav class="nav-list" data-admin-only aria-label="Filtros por status">
+        <nav class="nav-list" data-admin-only data-requests-admin-view aria-label="Filtros por status">
           <button class="nav-item active" type="button" data-status="todas">
             <span class="nav-icon" aria-hidden="true">□</span>
             Todas
@@ -118,22 +118,30 @@
             <h1 id="app-title">Solicitações das lojas</h1>
           </div>
           <div class="topbar-actions">
+            <button class="ghost-button active-view-button" id="requests-view-button" type="button" data-admin-only>
+              <span aria-hidden="true">□</span>
+              Solicitações
+            </button>
+            <button class="ghost-button" id="personal-tasks-button" type="button" data-admin-only>
+              <span aria-hidden="true">!</span>
+              Minhas pendências
+            </button>
             <button class="ghost-button" id="users-button" type="button" data-admin-only>
               <span aria-hidden="true">U</span>
               Usuários
             </button>
-            <button class="ghost-button" id="export-button" type="button" title="Exportar CSV" data-admin-only>
+            <button class="ghost-button" id="export-button" type="button" title="Exportar CSV" data-admin-only data-requests-admin-view>
               <span aria-hidden="true">⇩</span>
               Exportar
             </button>
-            <button class="primary-button" id="open-form-button" type="button" data-admin-only>
+            <button class="primary-button" id="open-form-button" type="button" data-admin-only data-requests-admin-view>
               <span aria-hidden="true">+</span>
               Nova solicitação
             </button>
           </div>
         </header>
 
-        <section class="metrics" data-admin-only aria-label="Resumo das solicitações">
+        <section class="metrics" data-admin-only data-requests-admin-view aria-label="Resumo das solicitações">
           <article class="metric">
             <span class="metric-label">Abertas</span>
             <strong id="metric-open">0</strong>
@@ -152,7 +160,7 @@
           </article>
         </section>
 
-        <section class="control-strip" data-admin-only aria-label="Busca e filtros">
+        <section class="control-strip" data-admin-only data-requests-admin-view aria-label="Busca e filtros">
           <label class="search-field">
             <span aria-hidden="true">⌕</span>
             <input id="search-input" type="search" placeholder="Buscar por título, gerente, setor..." />
@@ -258,7 +266,66 @@
           </div>
         </section>
 
-        <section class="main-grid" data-admin-only>
+        <section class="personal-tasks-panel hidden" id="personal-tasks-panel" data-admin-only aria-label="Minhas pendências">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Controle pessoal</p>
+              <h2>Minhas pendências</h2>
+            </div>
+            <span id="personal-task-summary">0 pendentes</span>
+          </div>
+
+          <div class="personal-tasks-layout">
+            <form class="request-form inline-form personal-task-form" id="personal-task-form">
+              <div class="form-grid">
+                <label class="form-wide">
+                  Pendência
+                  <input name="title" type="text" required placeholder="Resumo do que precisa resolver" />
+                </label>
+                <label>
+                  Data para resolver
+                  <input name="dueDate" type="date" required />
+                </label>
+                <label class="form-wide">
+                  Observações
+                  <textarea name="description" rows="5" placeholder="Detalhes, contexto ou próximo passo."></textarea>
+                </label>
+              </div>
+
+              <div class="modal-actions">
+                <button class="primary-button" type="submit">
+                  <span aria-hidden="true">+</span>
+                  Lançar pendência
+                </button>
+              </div>
+            </form>
+
+            <div class="personal-task-board">
+              <div class="personal-task-tabs" role="tablist" aria-label="Filtros das minhas pendências">
+                <button class="manager-tab active" type="button" data-personal-filter="pendentes">
+                  Pendentes
+                  <span id="personal-pending-count">0</span>
+                </button>
+                <button class="manager-tab" type="button" data-personal-filter="resolvidas">
+                  Resolvidas
+                  <span id="personal-resolved-count">0</span>
+                </button>
+                <button class="manager-tab" type="button" data-personal-filter="todas">
+                  Todas
+                  <span id="personal-all-count">0</span>
+                </button>
+              </div>
+
+              <div class="personal-task-list" id="personal-task-list"></div>
+              <div class="empty-state hidden" id="personal-task-empty-state">
+                <strong>Nenhuma pendência pessoal</strong>
+                <span>Cadastre uma pendência para acompanhar sem misturar com os pedidos dos gerentes.</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="main-grid" data-admin-only data-requests-admin-view>
           <div class="requests-panel" aria-label="Lista de solicitações">
             <div class="panel-heading">
               <h2>Fila</h2>
