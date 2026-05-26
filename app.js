@@ -11,13 +11,13 @@ const priorityLabels = {
 };
 
 const responseDeadlineDays = {
-  alta: 1,
+  alta: 2,
   media: 3,
   baixa: 7,
 };
 
 const responseDeadlineLabels = {
-  alta: "24 horas",
+  alta: "48 horas",
   media: "3 dias",
   baixa: "7 dias",
 };

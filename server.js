@@ -38,7 +38,7 @@ const mimeTypes = {
 };
 
 const priorityLabels = {
-  alta: "Alta - 24 horas",
+  alta: "Alta - 48 horas",
   media: "Media - 3 dias",
   baixa: "Baixa - 7 dias",
 };
@@ -50,7 +50,7 @@ const unitLabels = {
 };
 
 const responseDeadlineDays = {
-  alta: 1,
+  alta: 2,
   media: 3,
   baixa: 7,
 };
