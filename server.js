@@ -484,6 +484,26 @@ async function handleCreateMeetingSlot(request, response, data, currentUser) {
     return;
   }
 
+  const existingIndex = data.meetings.findIndex((item) => item.date === meeting.date && item.time === meeting.time);
+  if (existingIndex !== -1) {
+    const existing = data.meetings[existingIndex];
+    if (existing.status === "booked") {
+      sendJson(response, 409, { ok: false, error: "Este horario ja esta agendado." });
+      return;
+    }
+
+    const updatedMeeting = {
+      ...existing,
+      status,
+      adminNote: meeting.adminNote || existing.adminNote,
+      updatedAt: now,
+    };
+    data.meetings[existingIndex] = updatedMeeting;
+    await writeData(data);
+    sendJson(response, 200, { ok: true, meeting: updatedMeeting, meetings: sortMeetings(data.meetings) });
+    return;
+  }
+
   data.meetings = [meeting, ...data.meetings];
   await writeData(data);
   sendJson(response, 201, { ok: true, meeting, meetings: sortMeetings(data.meetings) });

@@ -81,6 +81,20 @@ const maxAttachmentFiles = 5;
 const maxPdfAttachmentBytes = 4 * 1024 * 1024;
 const maxImageDimension = 1600;
 const imageCompressionQuality = 0.84;
+const meetingTimeSlots = [
+  "06:00",
+  "07:00",
+  "08:00",
+  "09:00",
+  "10:00",
+  "11:00",
+  "13:00",
+  "14:00",
+  "15:00",
+  "16:00",
+  "17:00",
+  "18:00",
+];
 
 const toDateInputValue = (date) => {
   const year = date.getFullYear();
@@ -953,12 +967,73 @@ function renderMeetingCalendar() {
       ${
         isAdmin()
           ? `<div class="calendar-day-actions">
-              <button class="ghost-button compact-button" type="button" data-open-meeting-day="${meetingSelectedDate}">Abrir horários fechados</button>
+              <button class="primary-button compact-button" type="button" data-open-meeting-day="${meetingSelectedDate}">Abrir agenda do dia</button>
               <button class="ghost-button compact-button" type="button" data-close-meeting-day="${meetingSelectedDate}">Fechar disponíveis</button>
             </div>`
           : ""
       }
     </div>
+    ${meetingTimeGridMarkup(selectedMeetings)}
+  `;
+}
+
+function meetingTimeGridMarkup(selectedMeetings) {
+  const meetingsByTime = new Map(selectedMeetings.map((meeting) => [meeting.time, meeting]));
+
+  return `
+    <div class="meeting-time-grid" aria-label="Horários do dia selecionado">
+      ${meetingTimeSlots.map((time) => meetingTimeSlotMarkup(time, meetingsByTime.get(time))).join("")}
+    </div>
+  `;
+}
+
+function meetingTimeSlotMarkup(time, meeting) {
+  if (!meeting) {
+    return `
+      <article class="meeting-time-slot unavailable">
+        <strong>${time}</strong>
+        <span>Fechado</span>
+        ${
+          isAdmin()
+            ? `<button class="ghost-button compact-button" type="button" data-create-meeting-slot="${meetingSelectedDate}" data-time="${time}">Abrir</button>`
+            : ""
+        }
+      </article>
+    `;
+  }
+
+  const statusLabel = meetingStatusLabels[meeting.status] || "Disponível";
+  const bookedLabel = meeting.bookedByName ? `${meeting.bookedByName} · ${meeting.topic || "Reunião"}` : "";
+
+  return `
+    <article class="meeting-time-slot meeting-${meeting.status}">
+      <strong>${time}</strong>
+      <span>${escapeHtml(statusLabel)}</span>
+      ${bookedLabel ? `<small>${escapeHtml(bookedLabel)}</small>` : ""}
+      ${meetingSlotActionMarkup(meeting)}
+    </article>
+  `;
+}
+
+function meetingSlotActionMarkup(meeting) {
+  if (isAdmin()) {
+    if (meeting.status === "booked") {
+      return '<small>Horário já agendado</small>';
+    }
+
+    return meeting.status === "available"
+      ? `<button class="ghost-button compact-button" type="button" data-close-meeting="${escapeHtml(meeting.id)}">Fechar</button>`
+      : `<button class="primary-button compact-button" type="button" data-open-meeting="${escapeHtml(meeting.id)}">Abrir</button>`;
+  }
+
+  if (meeting.status !== "available") return "";
+
+  return `
+    <form class="meeting-book-form compact-meeting-book-form" data-book-meeting-form="${escapeHtml(meeting.id)}">
+      <input name="topic" type="text" required placeholder="Tema" />
+      <textarea name="agenda" rows="3" required placeholder="Pautas da reunião"></textarea>
+      <button class="primary-button compact-button" type="submit">Agendar</button>
+    </form>
   `;
 }
 
@@ -1585,21 +1660,26 @@ async function deletePersonalTask(taskId) {
 async function createMeetingSlot(formData) {
   if (!isAdmin()) return false;
 
-  const payload = {
+  return createMeetingSlotFromPayload({
     date: formData.get("date"),
     time: formData.get("time"),
     status: formData.get("status"),
     adminNote: formData.get("adminNote")?.trim() ?? "",
-  };
+  });
+}
 
+async function createMeetingSlotFromPayload(payload) {
+  if (!isAdmin()) return false;
   try {
     const result = await apiFetch("/api/meetings", jsonRequest("POST", payload));
     meetings = result.meetings;
     meetingSelectedDate = payload.date;
     const [year, month] = meetingSelectedDate.split("-").map(Number);
     meetingCalendarDate = new Date(year, month - 1, 1);
-    elements.meetingSlotForm.reset();
-    elements.meetingSlotForm.elements.date.min = todayIso();
+    if (elements.meetingSlotForm) {
+      elements.meetingSlotForm.reset();
+      elements.meetingSlotForm.elements.date.min = todayIso();
+    }
     renderAdminView();
     showToast("Horário adicionado à agenda.");
     return true;
@@ -1625,6 +1705,11 @@ async function updateMeeting(meetingId, payload, successMessage) {
 async function updateMeetingDay(date, status) {
   if (!isAdmin()) return;
 
+  if (status === "available") {
+    await openMeetingDay(date);
+    return;
+  }
+
   const targetMeetings = meetings.filter((meeting) => {
     if (meeting.date !== date) return false;
     if (status === "available") return meeting.status === "blocked";
@@ -1646,6 +1731,43 @@ async function updateMeetingDay(date, status) {
     meetings = results[results.length - 1].meetings;
     renderAdminView();
     showToast(status === "available" ? "Horários do dia abertos." : "Horários disponíveis do dia fechados.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function openMeetingDay(date) {
+  const selectedMeetings = meetings.filter((meeting) => meeting.date === date);
+  const meetingsByTime = new Map(selectedMeetings.map((meeting) => [meeting.time, meeting]));
+  const operations = meetingTimeSlots.map((time) => {
+    const meeting = meetingsByTime.get(time);
+    if (!meeting) {
+      return apiFetch(
+        "/api/meetings",
+        jsonRequest("POST", {
+          date,
+          time,
+          status: "available",
+          adminNote: "Horário disponível",
+        }),
+      );
+    }
+    if (meeting.status === "blocked") {
+      return apiFetch(`/api/meetings/${encodeURIComponent(meeting.id)}`, jsonRequest("PATCH", { status: "available" }));
+    }
+    return null;
+  }).filter(Boolean);
+
+  if (operations.length === 0) {
+    showToast("Agenda do dia já está aberta.");
+    return;
+  }
+
+  try {
+    const results = await Promise.all(operations);
+    meetings = results[results.length - 1].meetings;
+    renderAdminView();
+    showToast("Agenda do dia aberta nos horários padrão.");
   } catch (error) {
     showToast(error.message);
   }
@@ -2657,6 +2779,29 @@ function bindEvents() {
   });
 
   elements.meetingCalendar.addEventListener("click", (event) => {
+    const createSlotButton = event.target.closest("[data-create-meeting-slot]");
+    if (createSlotButton) {
+      createMeetingSlotFromPayload({
+        date: createSlotButton.dataset.createMeetingSlot,
+        time: createSlotButton.dataset.time,
+        status: "available",
+        adminNote: "Horário disponível",
+      });
+      return;
+    }
+
+    const openButton = event.target.closest("[data-open-meeting]");
+    if (openButton) {
+      updateMeeting(openButton.dataset.openMeeting, { status: "available" }, "Horário aberto.");
+      return;
+    }
+
+    const closeButton = event.target.closest("[data-close-meeting]");
+    if (closeButton) {
+      updateMeeting(closeButton.dataset.closeMeeting, { status: "blocked" }, "Horário fechado.");
+      return;
+    }
+
     const dayButton = event.target.closest("[data-meeting-day]");
     if (dayButton) {
       meetingSelectedDate = dayButton.dataset.meetingDay;
@@ -2693,6 +2838,13 @@ function bindEvents() {
     const closeDayButton = event.target.closest("[data-close-meeting-day]");
     if (!closeDayButton) return;
     updateMeetingDay(closeDayButton.dataset.closeMeetingDay, "blocked");
+  });
+
+  elements.meetingCalendar.addEventListener("submit", (event) => {
+    const form = event.target.closest("[data-book-meeting-form]");
+    if (!form) return;
+    event.preventDefault();
+    bookMeeting(form.dataset.bookMeetingForm, form);
   });
 
   elements.form.addEventListener("submit", async (event) => {

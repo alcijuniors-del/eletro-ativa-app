@@ -1054,6 +1054,62 @@ textarea:focus {
   gap: 8px;
 }
 
+.meeting-time-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.meeting-time-slot {
+  display: grid;
+  gap: 7px;
+  min-height: 118px;
+  align-content: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 10px;
+}
+
+.meeting-time-slot > strong {
+  color: #fff;
+  font-size: 1.08rem;
+}
+
+.meeting-time-slot > span,
+.meeting-time-slot > small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.meeting-time-slot.meeting-available {
+  border-color: rgba(54, 226, 154, 0.32);
+  background: rgba(54, 226, 154, 0.08);
+}
+
+.meeting-time-slot.meeting-booked {
+  border-color: rgba(195, 108, 255, 0.34);
+  background: rgba(155, 57, 255, 0.1);
+}
+
+.meeting-time-slot.meeting-blocked,
+.meeting-time-slot.unavailable {
+  opacity: 0.78;
+}
+
+.compact-meeting-book-form {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.compact-meeting-book-form input,
+.compact-meeting-book-form textarea {
+  min-height: 34px;
+  padding: 8px;
+  font-size: 0.78rem;
+}
+
 .meeting-agenda-box h3 {
   margin-bottom: 6px;
 }
@@ -1655,6 +1711,10 @@ textarea:focus {
     gap: 6px;
   }
 
+  .meeting-time-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .calendar-day {
     min-height: 64px;
     padding: 7px;
@@ -1710,6 +1770,10 @@ textarea:focus {
 
   .manager-tabs {
     position: static;
+  }
+
+  .meeting-time-grid {
+    grid-template-columns: 1fr;
   }
 
   .manager-history-actions {
