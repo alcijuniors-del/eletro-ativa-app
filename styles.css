@@ -1140,6 +1140,17 @@ textarea:focus {
   color: #ffb4b4;
 }
 
+.danger-action {
+  border-color: rgba(255, 92, 92, 0.4);
+  color: #ffb4b4;
+}
+
+.danger-action:hover {
+  border-color: rgba(255, 92, 92, 0.72);
+  background: rgba(255, 92, 92, 0.14);
+  box-shadow: 0 0 22px rgba(255, 92, 92, 0.18);
+}
+
 .requests-panel,
 .detail-panel {
   min-height: 520px;
