@@ -22,9 +22,34 @@ const responseDeadlineLabels = {
   baixa: "7 dias",
 };
 
+const adminTaskDeadlineDays = {
+  alta: 1,
+  media: 3,
+  baixa: 5,
+};
+
+const adminTaskDeadlineLabels = {
+  alta: "24 horas",
+  media: "72 horas",
+  baixa: "5 dias",
+};
+
+const materialListDeadlineDays = {
+  alta: 3,
+  media: 5,
+  baixa: 7,
+};
+
+const materialListDeadlineLabels = {
+  alta: "3 dias",
+  media: "5 dias",
+  baixa: "7 dias",
+};
+
 const roleLabels = {
   admin: "Administrador",
   manager: "Gerente",
+  engineer: "Engenheiro",
 };
 
 const unitLabels = {
@@ -131,8 +156,10 @@ const elements = {
   adminSlaHint: document.querySelector("#admin-sla-hint"),
   managerInput: document.querySelector("#manager-input"),
   departmentInput: document.querySelector("#department-input"),
+  assigneeInput: document.querySelector("#assignee-input"),
   managerPanel: document.querySelector("#manager-submit-panel"),
   managerForm: document.querySelector("#manager-request-form"),
+  managerRequestType: document.querySelector("#manager-request-type"),
   managerSlaHint: document.querySelector("#manager-sla-hint"),
   managerAccountLabel: document.querySelector("#manager-account-label"),
   managerHistoryPanel: document.querySelector("#manager-history-panel"),
@@ -307,17 +334,23 @@ function formatDateTime(value = "") {
   });
 }
 
-function responseDueDate(priority) {
-  return daysFromToday(responseDeadlineDays[priority] ?? responseDeadlineDays.media);
+function responseDueDate(priority, deadlineDays = responseDeadlineDays) {
+  return daysFromToday(deadlineDays[priority] ?? deadlineDays.media);
 }
 
-function responseDeadlineLabel(priority) {
-  return responseDeadlineLabels[priority] ?? responseDeadlineLabels.media;
+function responseDeadlineLabel(priority, labels = responseDeadlineLabels) {
+  return labels[priority] ?? labels.media;
 }
 
-function applyResponseDeadline(form, hintElement = null) {
+function requestDeadlineLabel(request) {
+  if (request.type === "admin_task") return responseDeadlineLabel(request.priority, adminTaskDeadlineLabels);
+  if (request.type === "material_list") return responseDeadlineLabel(request.priority, materialListDeadlineLabels);
+  return responseDeadlineLabel(request.priority);
+}
+
+function applyResponseDeadline(form, hintElement = null, deadlineDays = responseDeadlineDays, labels = responseDeadlineLabels) {
   const priority = form.elements.priority.value;
-  const dueDate = responseDueDate(priority);
+  const dueDate = responseDueDate(priority, deadlineDays);
   const dueInput = form.elements.dueDate;
 
   dueInput.value = dueDate;
@@ -325,7 +358,7 @@ function applyResponseDeadline(form, hintElement = null) {
   dueInput.max = dueDate;
 
   if (hintElement) {
-    hintElement.textContent = `Prazo automático: ${responseDeadlineLabel(priority)}`;
+    hintElement.textContent = `Prazo automático: ${responseDeadlineLabel(priority, labels)}`;
   }
 }
 
@@ -413,11 +446,27 @@ function renderAuth() {
     elements.personalTaskForm.elements.dueDate.min = todayIso();
     renderAdminView();
     renderUsers();
+    renderAssigneeOptions();
     return;
   }
 
-  applyResponseDeadline(elements.managerForm, elements.managerSlaHint);
+  applyManagerRequestDeadline();
   renderManagerView();
+}
+
+function applyManagerRequestDeadline() {
+  const isMaterialList = elements.managerRequestType?.value === "material_list";
+  const titleInput = elements.managerForm.elements.title;
+  titleInput.placeholder = isMaterialList ? "Solicitação Lista de Material" : "Resumo da solicitação";
+  if (isMaterialList && !titleInput.value.trim()) {
+    titleInput.value = "Solicitação Lista de Material";
+  }
+  applyResponseDeadline(
+    elements.managerForm,
+    elements.managerSlaHint,
+    isMaterialList ? materialListDeadlineDays : responseDeadlineDays,
+    isMaterialList ? materialListDeadlineLabels : responseDeadlineLabels,
+  );
 }
 
 function renderAdminView() {
@@ -460,7 +509,7 @@ function renderManagerView() {
   if (isAdmin()) return;
 
   const showingMeetings = managerWorkspace === "meetings";
-  elements.managerPanel.classList.toggle("hidden", showingMeetings);
+  elements.managerPanel.classList.toggle("hidden", showingMeetings || currentUser.role === "engineer");
   elements.managerHistoryPanel.classList.toggle("hidden", showingMeetings);
   elements.personalTasksPanel.classList.add("hidden");
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
@@ -544,6 +593,12 @@ function renderManagerDashboard() {
     const responseAttachments = Array.isArray(request.responseAttachments)
       ? request.responseAttachments
       : [];
+    const assignedToMe = request.assigneeId === currentUser.id && request.status !== "resolvida";
+    const requestTypeLabel = request.type === "material_list"
+      ? "Lista de Material"
+      : request.type === "admin_task"
+        ? "Solicitação da Administração"
+        : "Solicitação enviada";
 
     item.innerHTML = `
       <div class="request-title-row">
@@ -555,16 +610,35 @@ function renderManagerDashboard() {
       </div>
       <p class="request-description">${escapeHtml(request.description)}</p>
       <div class="request-meta">
+        <span class="chip">${escapeHtml(requestTypeLabel)}</span>
         <span class="chip priority-${request.priority}">${priorityLabels[request.priority]}</span>
         <span class="chip">Prazo: ${formatDate(request.dueDate)}</span>
-        <span class="chip">${responseDeadlineLabel(request.priority)}</span>
+        <span class="chip">${requestDeadlineLabel(request)}</span>
       </div>
       ${attachmentsMarkup(attachments, "Anexos da solicitação")}
       <section class="manager-response-box">
-        <h3>Resposta</h3>
+        <h3>${assignedToMe ? "Sua resposta" : "Resposta"}</h3>
         <p>${response}</p>
         ${attachmentsMarkup(responseAttachments, "Anexos da resposta")}
       </section>
+      ${
+        assignedToMe
+          ? `<form class="assigned-response-form" data-assigned-response-form="${escapeHtml(request.id)}">
+              <label>
+                Responder e marcar como resolvida
+                <textarea name="response" rows="4" required placeholder="Descreva a solução ou a lista de material do projeto."></textarea>
+              </label>
+              <label class="file-field">
+                Anexos da resposta
+                <input name="responseAttachments" type="file" accept="image/*,application/pdf" multiple />
+                <span class="input-hint">Até 5 arquivos. Use imagens ou PDFs.</span>
+              </label>
+              <div class="manager-card-actions">
+                <button class="primary-button compact-button" type="submit">Enviar resposta</button>
+              </div>
+            </form>`
+          : ""
+      }
       <details class="manager-history">
         <summary>Histórico</summary>
         <ol>
@@ -1016,7 +1090,7 @@ function renderList() {
     const dueChipClass = isOverdue(request) ? "chip priority-alta" : "chip";
     const dueLabel = isOverdue(request)
       ? `Atrasada: ${formatDate(request.dueDate)}`
-      : `${formatDate(request.dueDate)} · ${responseDeadlineLabel(request.priority)}`;
+      : `${formatDate(request.dueDate)} · ${requestDeadlineLabel(request)}`;
     const attachmentCount =
       (Array.isArray(request.attachments) ? request.attachments.length : 0) +
       (Array.isArray(request.responseAttachments) ? request.responseAttachments.length : 0);
@@ -1066,7 +1140,7 @@ function renderDetail() {
   elements.detailDepartment.textContent = request.department;
   elements.detailPriority.textContent = priorityLabels[request.priority];
   elements.detailDue.textContent = `${formatDate(request.dueDate)}${
-    isOverdue(request) ? " · atrasada" : ` · ${responseDeadlineLabel(request.priority)}`
+    isOverdue(request) ? " · atrasada" : ` · ${requestDeadlineLabel(request)}`
   }`;
   elements.detailDescription.textContent = request.description;
   renderAttachmentGrid(elements.detailAttachments, request.attachments);
@@ -1083,11 +1157,15 @@ function renderDetail() {
     elements.responseAttachmentsInput.value = "";
     elements.responseInput.value = request.response;
   }
-  elements.startButton.disabled = request.status === "andamento";
+  const adminCanRespond = !request.assigneeId || request.type === "manager_request";
+  elements.responseInput.disabled = !adminCanRespond;
+  elements.responseAttachmentsInput.disabled = !adminCanRespond;
+  elements.startButton.disabled = request.status === "andamento" || !adminCanRespond;
   elements.startButton.innerHTML =
     request.status === "resolvida"
       ? '<span aria-hidden="true">↻</span> Reabrir'
       : '<span aria-hidden="true">↻</span> Em andamento';
+  elements.resolveButton.disabled = !adminCanRespond;
   elements.resolveButton.innerHTML =
     request.status === "resolvida"
       ? '<span aria-hidden="true">✓</span> Atualizar resposta'
@@ -1136,6 +1214,30 @@ function renderUsers() {
     `;
     elements.userList.append(row);
   });
+
+  renderAssigneeOptions();
+}
+
+function renderAssigneeOptions() {
+  if (!elements.assigneeInput) return;
+
+  const managers = users.filter((user) => user.role === "manager");
+  elements.assigneeInput.innerHTML = managers.length
+    ? managers
+        .map(
+          (user) =>
+            `<option value="${escapeHtml(user.id)}" data-name="${escapeHtml(user.name)}" data-department="${escapeHtml(user.department)}">${escapeHtml(user.name)} · ${escapeHtml(unitLabel(user.unit))}</option>`,
+        )
+        .join("")
+    : '<option value="">Cadastre um gerente primeiro</option>';
+
+  syncAdminAssigneeFields();
+}
+
+function syncAdminAssigneeFields() {
+  const option = elements.assigneeInput?.selectedOptions?.[0];
+  elements.managerInput.value = option?.dataset.name || "";
+  elements.departmentInput.value = option?.dataset.department || "";
 }
 
 function unitLabel(unit) {
@@ -1388,6 +1490,8 @@ async function addRequest(formData) {
   try {
     const attachments = await attachmentsFromForm(formData);
     const payload = {
+      requestType: formData.get("requestType") || (isAdmin() ? "admin_task" : "manager_request"),
+      assigneeId: formData.get("assigneeId") || "",
       manager: formData.get("manager")?.trim() ?? "",
       department: formData.get("department")?.trim() ?? "",
       title: formData.get("title").trim(),
@@ -1644,6 +1748,34 @@ async function resolveSelected() {
       elements.responseInput.value = updated.response || "";
       elements.responseAttachmentsInput.value = "";
     }
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function submitAssignedResponse(form) {
+  const requestId = form.dataset.assignedResponseForm;
+  const response = form.elements.response.value.trim();
+
+  if (!response) {
+    showToast("Informe a resposta antes de concluir.");
+    form.elements.response.focus();
+    return;
+  }
+
+  try {
+    const responseAttachments = await attachmentsFromInput(form.elements.responseAttachments);
+    const result = await apiFetch(
+      `/api/requests/${encodeURIComponent(requestId)}`,
+      jsonRequest("PATCH", {
+        status: "resolvida",
+        response,
+        responseAttachments,
+      }),
+    );
+    applyState(result);
+    renderManagerView();
+    showToast("Resposta enviada e solicitação resolvida.");
   } catch (error) {
     showToast(error.message);
   }
@@ -2152,9 +2284,10 @@ function openForm() {
   if (!isAdmin()) return;
 
   elements.form.reset();
-  applyResponseDeadline(elements.form, elements.adminSlaHint);
+  renderAssigneeOptions();
+  applyResponseDeadline(elements.form, elements.adminSlaHint, adminTaskDeadlineDays, adminTaskDeadlineLabels);
   elements.modal.showModal();
-  elements.managerInput.focus();
+  elements.assigneeInput.focus();
 }
 
 function closeForm() {
@@ -2181,6 +2314,7 @@ function resetUserFormMode() {
   elements.userForm.elements.password.required = true;
   elements.userForm.elements.password.placeholder = "";
   elements.userPasswordLabel.firstChild.textContent = "Senha";
+  elements.userForm.elements.role.value = "manager";
   elements.userModalTitle.textContent = "Usuários das lojas";
   elements.userSubmitButton.textContent = "Criar usuário";
 }
@@ -2197,6 +2331,7 @@ function editUser(userId) {
   elements.userForm.elements.unit.value = unitLabel(user.unit);
   elements.userForm.elements.username.value = user.username;
   elements.userForm.elements.phone.value = user.phone || "";
+  elements.userForm.elements.role.value = user.role === "engineer" ? "engineer" : "manager";
   elements.userForm.elements.password.value = "";
   elements.userForm.elements.password.required = false;
   elements.userForm.elements.password.placeholder = "Deixe em branco para manter";
@@ -2228,6 +2363,7 @@ async function saveManagerUser(formData) {
     username,
     phone: formData.get("phone"),
     password: formData.get("password"),
+    role: formData.get("role"),
   };
 
   try {
@@ -2276,7 +2412,7 @@ async function submitManagerRequest(event) {
   const saved = await addRequest(new FormData(elements.managerForm));
   if (saved) {
     elements.managerForm.reset();
-    applyResponseDeadline(elements.managerForm, elements.managerSlaHint);
+    applyManagerRequestDeadline();
   }
 }
 
@@ -2401,12 +2537,14 @@ function bindEvents() {
   });
 
   elements.priorityInput.addEventListener("change", () => {
-    applyResponseDeadline(elements.form, elements.adminSlaHint);
+    applyResponseDeadline(elements.form, elements.adminSlaHint, adminTaskDeadlineDays, adminTaskDeadlineLabels);
   });
 
   elements.managerForm.elements.priority.addEventListener("change", () => {
-    applyResponseDeadline(elements.managerForm, elements.managerSlaHint);
+    applyManagerRequestDeadline();
   });
+  elements.managerRequestType.addEventListener("change", applyManagerRequestDeadline);
+  elements.assigneeInput.addEventListener("change", syncAdminAssigneeFields);
   elements.managerRefreshButton.addEventListener("click", () => refreshStateFromServer({ notify: true }));
   elements.managerTabs.forEach((button) => {
     button.addEventListener("click", () => {
@@ -2418,6 +2556,12 @@ function bindEvents() {
     const button = event.target.closest("[data-print-request]");
     if (!button) return;
     printRequestPdf(button.dataset.printRequest);
+  });
+  elements.managerRequestList.addEventListener("submit", (event) => {
+    const form = event.target.closest("[data-assigned-response-form]");
+    if (!form) return;
+    event.preventDefault();
+    submitAssignedResponse(form);
   });
   elements.appShell.addEventListener("click", (event) => {
     const openButton = event.target.closest("[data-open-attachment]");

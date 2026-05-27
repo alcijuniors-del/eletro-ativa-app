@@ -196,6 +196,13 @@
           <form class="request-form inline-form" id="manager-request-form">
             <div class="form-grid">
               <label class="form-wide">
+                Tipo de solicitação
+                <select name="requestType" id="manager-request-type">
+                  <option value="manager_request">Solicitação para Administração</option>
+                  <option value="material_list">Solicitação Lista de Material para Paulo</option>
+                </select>
+              </label>
+              <label class="form-wide">
                 Título
                 <input name="title" type="text" required placeholder="Resumo da solicitação" />
               </label>
@@ -518,13 +525,14 @@
 
         <div class="form-grid">
           <label>
-            Gerente
-            <input id="manager-input" name="manager" type="text" required placeholder="Nome do gerente ou loja" />
+            Enviar para gerente
+            <select id="assignee-input" name="assigneeId" required></select>
           </label>
           <label>
             Setor
-            <input id="department-input" name="department" type="text" required placeholder="Ex.: Comercial" />
+            <input id="department-input" name="department" type="text" required readonly placeholder="Ex.: Comercial" />
           </label>
+          <input id="manager-input" name="manager" type="hidden" />
           <label class="form-wide">
             Título
             <input id="title-input" name="title" type="text" required placeholder="Resumo da solicitação" />
@@ -585,6 +593,13 @@
               <option value="SPZ">SPZ</option>
               <option value="CNP">CNP</option>
               <option value="CORP">CORP</option>
+            </select>
+          </label>
+          <label>
+            Perfil
+            <select name="role" required>
+              <option value="manager">Gerente</option>
+              <option value="engineer">Engenheiro</option>
             </select>
           </label>
           <label>

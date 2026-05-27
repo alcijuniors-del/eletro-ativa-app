@@ -55,6 +55,18 @@ const responseDeadlineDays = {
   baixa: 7,
 };
 
+const adminTaskDeadlineDays = {
+  alta: 1,
+  media: 3,
+  baixa: 5,
+};
+
+const materialListDeadlineDays = {
+  alta: 3,
+  media: 5,
+  baixa: 7,
+};
+
 const priorityWeight = {
   alta: 1,
   media: 2,
@@ -195,7 +207,6 @@ async function handleApi(request, response, url) {
 
   const requestMatch = url.pathname.match(/^\/api\/requests\/([^/]+)$/);
   if (requestMatch && request.method === "PATCH") {
-    requireAdmin(currentUser);
     await handleUpdateRequest(request, response, data, currentUser, requestMatch[1]);
     return;
   }
@@ -293,25 +304,50 @@ async function handleCreateRequest(request, response, data, currentUser) {
   const now = new Date().toISOString();
   const priority = normalizePriority(body.priority);
   const isManager = currentUser.role === "manager";
+  const requestType = normalizeRequestType(body.requestType, currentUser);
+  const assignee = resolveRequestAssignee(data.users, body.assigneeId, requestType);
+  const requesterName = currentUser.role === "admin" ? "Administração" : currentUser.name;
+  const requesterDepartment = currentUser.role === "admin" ? "Regional Alci Jr." : currentUser.department;
 
   const taskRequest = {
     id: createId("request"),
-    manager: isManager ? currentUser.name : cleanText(body.manager, "Gerente nao informado"),
-    department: isManager ? currentUser.department : cleanText(body.department, "Setor nao informado"),
-    title: cleanText(body.title, "Sem titulo"),
+    type: requestType,
+    manager: requestType === "admin_task" && assignee ? assignee.name : isManager ? currentUser.name : cleanText(body.manager, "Gerente nao informado"),
+    department:
+      requestType === "admin_task" && assignee
+        ? assignee.department
+        : isManager
+          ? currentUser.department
+          : cleanText(body.department, "Setor nao informado"),
+    title: cleanText(body.title, requestType === "material_list" ? "Solicitação Lista de Material" : "Sem titulo"),
     description: cleanText(body.description, "Sem descricao"),
     priority,
-    dueDate: responseDueDate(priority),
+    dueDate: requestDueDate(priority, requestType),
     status: "nova",
     response: "",
     attachments: await sanitizeAttachments(body.attachments),
     responseAttachments: [],
     createdBy: currentUser.id,
+    createdByName: requesterName,
+    createdByDepartment: requesterDepartment,
+    assigneeId: assignee?.id || "",
+    assigneeName: assignee?.name || "",
+    assigneeRole: assignee?.role || "",
     requesterPhone: isManager ? normalizePhone(currentUser.phone) : normalizePhone(body.requesterPhone),
     createdAt: now,
     updatedAt: now,
     history: [`Solicitacao registrada em ${formatDateTime(now)}`],
   };
+
+  if (requestType === "admin_task" && !assignee) {
+    sendJson(response, 400, { ok: false, error: "Escolha o gerente responsavel pela solicitacao." });
+    return;
+  }
+
+  if (requestType === "material_list" && !assignee) {
+    sendJson(response, 400, { ok: false, error: "Cadastre o usuario Paulo como engenheiro antes de enviar lista de material." });
+    return;
+  }
 
   data.requests = [taskRequest, ...data.requests];
   await writeData(data);
@@ -324,7 +360,7 @@ async function handleCreateRequest(request, response, data, currentUser) {
     requests:
       currentUser.role === "admin"
         ? sortRequests(data.requests)
-        : data.requests.filter((item) => item.createdBy === currentUser.id),
+        : visibleRequestsForUser(data.requests, currentUser),
     notification,
   });
 }
@@ -558,6 +594,11 @@ async function handleUpdateRequest(request, response, data, currentUser, request
   }
 
   const previous = data.requests[index];
+  if (!canRespondToRequest(previous, currentUser)) {
+    sendJson(response, 403, { ok: false, error: "Esta solicitacao nao esta atribuida ao seu usuario." });
+    return;
+  }
+
   const now = new Date().toISOString();
   const nextStatus = normalizeStatus(body.status || previous.status);
   const responseText =
@@ -603,7 +644,7 @@ async function handleUpdateRequest(request, response, data, currentUser, request
   sendJson(response, 200, {
     ok: true,
     request: updatedRequest,
-    requests: sortRequests(data.requests),
+    requests: currentUser.role === "admin" ? sortRequests(data.requests) : visibleRequestsForUser(data.requests, currentUser),
     notification,
   });
 }
@@ -700,7 +741,7 @@ async function handleCreateUser(request, response, data) {
     username,
     phone: normalizePhone(body.phone),
     passwordHash: hashPassword(cleanText(body.password, "1234")),
-    role: "manager",
+    role: normalizeUserRole(body.role),
     createdAt: new Date().toISOString(),
   };
 
@@ -742,6 +783,7 @@ async function handleUpdateUser(request, response, data, userId) {
     unit: normalizeUnit(body.unit || previous.unit),
     username,
     phone: normalizePhone(body.phone),
+    role: normalizeUserRole(body.role || previous.role),
     updatedAt: new Date().toISOString(),
   };
 
@@ -830,9 +872,7 @@ async function notifyRequester(taskRequest) {
 function buildStatePayload(data, currentUser) {
   const user = publicUser(currentUser);
   const isAdmin = currentUser.role === "admin";
-  const visibleRequests = isAdmin
-    ? sortRequests(data.requests)
-    : data.requests.filter((request) => request.createdBy === currentUser.id);
+  const visibleRequests = isAdmin ? sortRequests(data.requests) : visibleRequestsForUser(data.requests, currentUser);
 
   return {
     ok: true,
@@ -855,8 +895,9 @@ async function readData() {
     meetings: Array.isArray(parsed.meetings) ? parsed.meetings : [],
   };
   const migrated = await migrateLegacyAttachments(data.requests);
+  const migratedHighPriorityDueDates = migrateHighPriorityDueDates(data.requests);
 
-  if (migrated) {
+  if (migrated || migratedHighPriorityDueDates) {
     await writeData(data);
   }
 
@@ -1014,6 +1055,16 @@ function normalizePersonalTaskStatus(value) {
   return ["pendente", "resolvida"].includes(value) ? value : "pendente";
 }
 
+function normalizeUserRole(value) {
+  return ["manager", "engineer"].includes(value) ? value : "manager";
+}
+
+function normalizeRequestType(value, currentUser) {
+  if (currentUser.role === "admin") return "admin_task";
+  if (value === "material_list") return "material_list";
+  return "manager_request";
+}
+
 function normalizeMeetingStatus(value) {
   return ["available", "blocked", "booked"].includes(value) ? value : "available";
 }
@@ -1040,8 +1091,41 @@ function todayInBusinessTimezone() {
 }
 
 function responseDueDate(priority) {
+  return responseDueDateFromDate(priority, businessToday(), responseDeadlineDays);
+}
+
+function requestDueDate(priority, requestType) {
+  if (requestType === "admin_task") {
+    return responseDueDateFromDate(priority, businessToday(), adminTaskDeadlineDays);
+  }
+  if (requestType === "material_list") {
+    return responseDueDateFromDate(priority, businessToday(), materialListDeadlineDays);
+  }
+  return responseDueDate(priority);
+}
+
+function responseDueDateFromDate(priority, baseDate, deadlineDays) {
+  const date = new Date(baseDate);
+  if (Number.isNaN(date.getTime())) {
+    return responseDueDate(priority);
+  }
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + (deadlineDays[priority] ?? deadlineDays.media));
+  if (date.getDay() === 0) {
+    date.setDate(date.getDate() + 1);
+  }
+  return toDateInputValue(date);
+}
+
+function legacyResponseDueDateFromDate(priority, baseDate) {
+  const legacyDays = priority === "alta" ? 1 : responseDeadlineDays[priority] ?? responseDeadlineDays.media;
   const date = businessToday();
-  date.setDate(date.getDate() + (responseDeadlineDays[priority] ?? responseDeadlineDays.media));
+  const parsedBaseDate = new Date(baseDate);
+  if (!Number.isNaN(parsedBaseDate.getTime())) {
+    date.setFullYear(parsedBaseDate.getFullYear(), parsedBaseDate.getMonth(), parsedBaseDate.getDate());
+  }
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + legacyDays);
   if (date.getDay() === 0) {
     date.setDate(date.getDate() + 1);
   }
@@ -1149,6 +1233,34 @@ async function migrateLegacyAttachments(requests) {
         migrated = true;
       }
     }
+  }
+
+  return migrated;
+}
+
+function migrateHighPriorityDueDates(requests) {
+  let migrated = false;
+
+  for (const taskRequest of requests) {
+    if (taskRequest.priority !== "alta") continue;
+    if (taskRequest.type && taskRequest.type !== "manager_request") continue;
+
+    const createdAt = taskRequest.createdAt || taskRequest.updatedAt || new Date().toISOString();
+    const legacyDueDate = legacyResponseDueDateFromDate("alta", createdAt);
+    const newDueDate = responseDueDateFromDate("alta", createdAt, responseDeadlineDays);
+
+    const shouldUpdate =
+      taskRequest.dueDate !== newDueDate &&
+      (taskRequest.dueDate === legacyDueDate || String(taskRequest.dueDate || "") < newDueDate);
+    if (!shouldUpdate) continue;
+
+    taskRequest.dueDate = newDueDate;
+    taskRequest.updatedAt = new Date().toISOString();
+    taskRequest.history = Array.isArray(taskRequest.history) ? taskRequest.history : [];
+    if (!taskRequest.history.some((entry) => String(entry).includes("Prazo Alta atualizado para 48 horas"))) {
+      taskRequest.history.push(`Prazo Alta atualizado para 48 horas em ${formatDateTime(taskRequest.updatedAt)}`);
+    }
+    migrated = true;
   }
 
   return migrated;
@@ -1303,6 +1415,39 @@ function sortMeetings(items) {
 
     return String(left.id || "").localeCompare(String(right.id || ""));
   });
+}
+
+function visibleRequestsForUser(items, currentUser) {
+  return sortRequests(
+    items.filter(
+      (request) =>
+        request.createdBy === currentUser.id ||
+        request.assigneeId === currentUser.id ||
+        (!request.assigneeId && currentUser.role === "admin"),
+    ),
+  );
+}
+
+function canRespondToRequest(request, currentUser) {
+  if (currentUser.role === "admin") return !request.assigneeId || request.type === "manager_request";
+  return request.assigneeId === currentUser.id;
+}
+
+function resolveRequestAssignee(users, assigneeId, requestType) {
+  if (requestType === "admin_task") {
+    return users.find((user) => user.id === assigneeId && user.role === "manager") || null;
+  }
+
+  if (requestType === "material_list") {
+    return (
+      users.find((user) => user.role === "engineer" && normalizeUsername(user.username) === "paulo") ||
+      users.find((user) => user.role === "engineer" && String(user.name || "").toLowerCase().includes("paulo")) ||
+      users.find((user) => user.role === "engineer") ||
+      null
+    );
+  }
+
+  return null;
 }
 
 function cleanText(value, fallback) {

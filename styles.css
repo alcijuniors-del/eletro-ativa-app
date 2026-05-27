@@ -922,6 +922,15 @@ textarea:focus {
   padding-top: 12px;
 }
 
+.assigned-response-form {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(195, 108, 255, 0.24);
+  border-radius: 8px;
+  background: rgba(155, 57, 255, 0.08);
+  padding: 12px;
+}
+
 .meeting-reminder {
   display: grid;
   gap: 4px;
