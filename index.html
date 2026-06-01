@@ -126,6 +126,10 @@
               <span aria-hidden="true">L</span>
               Listas de material
             </button>
+            <button class="ghost-button" id="performance-view-button" type="button" data-admin-only>
+              <span aria-hidden="true">%</span>
+              Desempenho
+            </button>
             <button class="ghost-button" id="personal-tasks-button" type="button" data-admin-only>
               <span aria-hidden="true">!</span>
               Minhas pendências
@@ -254,7 +258,7 @@
               <label class="form-wide file-field">
                 Anexos da solicitação
                 <input name="attachments" type="file" accept="image/*,application/pdf" multiple />
-                <span class="input-hint">Até 12 arquivos. Use imagens ou PDFs.</span>
+                <span class="input-hint">Clique para selecionar ou arraste arquivos aqui. Até 12 arquivos. Use imagens ou PDFs.</span>
               </label>
             </div>
 
@@ -265,6 +269,41 @@
               </button>
             </div>
           </form>
+        </section>
+
+        <section class="performance-panel hidden" id="performance-panel" data-admin-only aria-label="Desempenho das respostas">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Pontuação</p>
+              <h2>Desempenho das respostas</h2>
+            </div>
+            <span id="performance-summary-label">0 respondidas</span>
+          </div>
+
+          <div class="performance-summary-grid" aria-label="Resumo do desempenho">
+            <article class="performance-summary-card">
+              <span>Respondidas</span>
+              <strong id="performance-answered">0</strong>
+            </article>
+            <article class="performance-summary-card">
+              <span>No prazo</span>
+              <strong id="performance-on-time">0%</strong>
+            </article>
+            <article class="performance-summary-card">
+              <span>Tempo médio</span>
+              <strong id="performance-average">--</strong>
+            </article>
+            <article class="performance-summary-card">
+              <span>Melhor pontuação</span>
+              <strong id="performance-best">--</strong>
+            </article>
+          </div>
+
+          <div class="performance-list" id="performance-list"></div>
+          <div class="empty-state hidden" id="performance-empty-state">
+            <strong>Nenhuma resposta concluída ainda</strong>
+            <span>Quando o admin ou engenheiro responder uma solicitação, a pontuação aparece aqui.</span>
+          </div>
         </section>
 
         <section class="manager-history-panel hidden" id="manager-history-panel" aria-label="Minhas solicitações">
@@ -546,7 +585,7 @@
                   <label class="file-field response-file-field">
                     Anexar arquivos na resposta
                     <input id="response-attachments-input" type="file" accept="image/*,application/pdf" multiple />
-                    <span class="input-hint">Até 12 arquivos. Imagens e PDFs serão adicionados quando você enviar a resposta.</span>
+                    <span class="input-hint">Clique para selecionar ou arraste arquivos aqui. Até 12 arquivos.</span>
                   </label>
                 </div>
                 <div class="detail-actions">
@@ -622,7 +661,7 @@
           <label class="form-wide file-field">
             Anexos da solicitação
             <input name="attachments" type="file" accept="image/*,application/pdf" multiple />
-            <span class="input-hint">Até 12 arquivos. Use imagens ou PDFs.</span>
+            <span class="input-hint">Clique para selecionar ou arraste arquivos aqui. Até 12 arquivos. Use imagens ou PDFs.</span>
           </label>
         </div>
 

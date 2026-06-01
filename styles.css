@@ -712,6 +712,7 @@ textarea:focus {
 
 .manager-submit-panel,
 .manager-history-panel,
+.performance-panel,
 .personal-tasks-panel,
 .meetings-panel {
   display: grid;
@@ -731,6 +732,13 @@ textarea:focus {
   background:
     linear-gradient(140deg, rgba(54, 226, 154, 0.1), transparent 34%),
     linear-gradient(320deg, rgba(155, 57, 255, 0.16), transparent 42%),
+    var(--surface);
+}
+
+.performance-panel {
+  background:
+    linear-gradient(140deg, rgba(70, 183, 255, 0.12), transparent 34%),
+    linear-gradient(320deg, rgba(255, 122, 24, 0.13), transparent 42%),
     var(--surface);
 }
 
@@ -902,6 +910,121 @@ textarea:focus {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.performance-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.performance-summary-card,
+.performance-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.055), transparent),
+    rgba(14, 12, 20, 0.82);
+  padding: 14px;
+}
+
+.performance-summary-card span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.performance-summary-card strong {
+  display: block;
+  margin-top: 8px;
+  color: #fff;
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.performance-list {
+  display: grid;
+  gap: 12px;
+}
+
+.performance-card {
+  display: grid;
+  gap: 12px;
+  border-left: 5px solid var(--blue);
+}
+
+.performance-card-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.performance-card-head strong,
+.performance-card-head span {
+  display: block;
+}
+
+.performance-card-head strong {
+  color: #fff;
+}
+
+.performance-card-head div span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.performance-rank,
+.performance-score {
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-weight: 900;
+  padding: 8px 10px;
+}
+
+.performance-score {
+  background: rgba(54, 226, 154, 0.14);
+  color: #8cffc9;
+}
+
+.performance-bar {
+  overflow: hidden;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.performance-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--orange), var(--green));
+}
+
+.performance-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.performance-stats span {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 9px;
+}
+
+.performance-stats strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #fff;
+  font-size: 1rem;
 }
 
 .meeting-admin-panel,
@@ -1449,7 +1572,23 @@ textarea:focus {
   border: 1px dashed rgba(195, 108, 255, 0.34);
   border-radius: 8px;
   background: rgba(155, 57, 255, 0.08);
+  cursor: pointer;
   padding: 12px;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.file-field.drag-over,
+.file-field.has-files {
+  border-color: rgba(54, 226, 154, 0.74);
+  background: rgba(54, 226, 154, 0.1);
+  box-shadow: 0 0 0 3px rgba(54, 226, 154, 0.12);
+}
+
+.file-field input[type="file"] {
+  cursor: pointer;
 }
 
 .attachment-block {
@@ -1733,6 +1872,8 @@ textarea:focus {
   .control-strip,
   .form-grid,
   .personal-task-tabs,
+  .performance-summary-grid,
+  .performance-stats,
   .meeting-tabs,
   .meeting-admin-layout,
   .calendar-selected-day {
@@ -1771,6 +1912,7 @@ textarea:focus {
   }
 
   .manager-submit-panel,
+  .performance-panel,
   .personal-tasks-panel,
   .meetings-panel {
     max-width: none;

@@ -143,6 +143,7 @@ const elements = {
   requestsAdminView: document.querySelectorAll("[data-requests-admin-view]"),
   requestsViewButton: document.querySelector("#requests-view-button"),
   materialListsButton: document.querySelector("#material-lists-button"),
+  performanceViewButton: document.querySelector("#performance-view-button"),
   personalTasksButton: document.querySelector("#personal-tasks-button"),
   meetingsViewButton: document.querySelector("#meetings-view-button"),
   navItems: document.querySelectorAll(".nav-item"),
@@ -183,6 +184,14 @@ const elements = {
   managerAllCount: document.querySelector("#manager-all-count"),
   managerWaitingCount: document.querySelector("#manager-waiting-count"),
   managerResolvedCount: document.querySelector("#manager-resolved-count"),
+  performancePanel: document.querySelector("#performance-panel"),
+  performanceSummaryLabel: document.querySelector("#performance-summary-label"),
+  performanceAnswered: document.querySelector("#performance-answered"),
+  performanceOnTime: document.querySelector("#performance-on-time"),
+  performanceAverage: document.querySelector("#performance-average"),
+  performanceBest: document.querySelector("#performance-best"),
+  performanceList: document.querySelector("#performance-list"),
+  performanceEmptyState: document.querySelector("#performance-empty-state"),
   personalTasksPanel: document.querySelector("#personal-tasks-panel"),
   personalTaskForm: document.querySelector("#personal-task-form"),
   personalTaskSummary: document.querySelector("#personal-task-summary"),
@@ -557,6 +566,7 @@ function renderAdminView() {
 
   const showingRequests = adminView === "requests" || adminView === "material";
   const showingMaterialLists = adminView === "material";
+  const showingPerformance = adminView === "performance";
   const showingPersonalTasks = adminView === "personal";
   const showingMeetings = adminView === "meetings";
   elements.requestsAdminView.forEach((element) => {
@@ -564,10 +574,12 @@ function renderAdminView() {
   });
   elements.managerPanel.classList.add("hidden");
   elements.managerHistoryPanel.classList.add("hidden");
+  elements.performancePanel.classList.toggle("hidden", !showingPerformance);
   elements.personalTasksPanel.classList.toggle("hidden", !showingPersonalTasks);
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
   elements.requestsViewButton.classList.toggle("active-view-button", adminView === "requests");
   elements.materialListsButton.classList.toggle("active-view-button", showingMaterialLists);
+  elements.performanceViewButton.classList.toggle("active-view-button", showingPerformance);
   elements.personalTasksButton.classList.toggle("active-view-button", showingPersonalTasks);
   elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
 
@@ -585,6 +597,13 @@ function renderAdminView() {
     return;
   }
 
+  if (showingPerformance) {
+    elements.appEyebrow.textContent = "Indicadores";
+    elements.appTitle.textContent = "Desempenho do admin e engenheiro";
+    renderPerformance();
+    return;
+  }
+
   elements.appEyebrow.textContent = showingMaterialLists ? "Acompanhamento técnico" : "Painel das lojas";
   elements.appTitle.textContent = showingMaterialLists ? "Listas de material" : "Solicitações das lojas";
   elements.openFormButton.innerHTML = showingMaterialLists
@@ -599,6 +618,7 @@ function renderManagerView() {
   const showingMeetings = managerWorkspace === "meetings";
   elements.managerPanel.classList.toggle("hidden", showingMeetings || currentUser.role === "engineer");
   elements.managerHistoryPanel.classList.toggle("hidden", showingMeetings);
+  elements.performancePanel.classList.add("hidden");
   elements.personalTasksPanel.classList.add("hidden");
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
   elements.requestsViewButton.classList.toggle("active-view-button", !showingMeetings);
@@ -719,7 +739,7 @@ function renderManagerDashboard() {
               <label class="file-field">
                 Anexos da resposta
                 <input name="responseAttachments" type="file" accept="image/*,application/pdf" multiple />
-                <span class="input-hint">Até 12 arquivos. Use imagens ou PDFs.</span>
+                <span class="input-hint">Clique para selecionar ou arraste arquivos aqui. Até 12 arquivos.</span>
               </label>
               <div class="manager-card-actions">
                 <button class="primary-button compact-button" type="submit">Enviar resposta</button>
@@ -1246,6 +1266,202 @@ function requestResolutionDays(request) {
   return Math.max(0, Math.ceil((finished - started) / (24 * 60 * 60 * 1000)));
 }
 
+function renderPerformance() {
+  if (!isAdmin()) return;
+
+  const rows = performanceRows();
+  const totalAnswered = rows.reduce((total, row) => total + row.total, 0);
+  const totalOnTime = rows.reduce((total, row) => total + row.onTime, 0);
+  const totalHours = rows.reduce((total, row) => total + row.totalHours, 0);
+  const averageHours = totalAnswered ? totalHours / totalAnswered : 0;
+  const best = rows[0];
+
+  elements.performanceSummaryLabel.textContent = `${totalAnswered} ${
+    totalAnswered === 1 ? "respondida" : "respondidas"
+  }`;
+  elements.performanceAnswered.textContent = totalAnswered;
+  elements.performanceOnTime.textContent = totalAnswered
+    ? `${Math.round((totalOnTime / totalAnswered) * 100)}%`
+    : "0%";
+  elements.performanceAverage.textContent = totalAnswered ? formatDurationHours(averageHours) : "--";
+  elements.performanceBest.textContent = best ? `${best.score} pts` : "--";
+
+  elements.performanceList.innerHTML = "";
+  elements.performanceEmptyState.classList.toggle("hidden", rows.length > 0);
+
+  rows.forEach((row, index) => {
+    const card = document.createElement("article");
+    card.className = "performance-card";
+    card.innerHTML = `
+      <div class="performance-card-head">
+        <span class="performance-rank">#${index + 1}</span>
+        <div>
+          <strong>${escapeHtml(row.name)}</strong>
+          <span>${escapeHtml(row.roleLabel)}</span>
+        </div>
+        <span class="performance-score">${row.score} pts</span>
+      </div>
+      <div class="performance-bar" aria-hidden="true"><span style="width: ${row.score}%"></span></div>
+      <div class="performance-stats">
+        <span><strong>${row.total}</strong> respondidas</span>
+        <span><strong>${row.onTimePercent}%</strong> no prazo</span>
+        <span><strong>${escapeHtml(row.averageLabel)}</strong> tempo médio</span>
+        <span><strong>${escapeHtml(row.fastestLabel)}</strong> mais rápida</span>
+      </div>
+      <p class="muted-line">${escapeHtml(row.late)} atrasada${row.late === 1 ? "" : "s"} · ${escapeHtml(row.fastestTitle)}</p>
+    `;
+    elements.performanceList.append(card);
+  });
+}
+
+function performanceRows() {
+  const responders = new Map();
+
+  requests.forEach((request) => {
+    if (request.status !== "resolvida" || !cleanDisplayText(request.response)) return;
+
+    const owner = performanceResponder(request);
+    if (!["admin", "engineer"].includes(owner.role)) return;
+
+    const startedAt = requestStartedAt(request);
+    const finishedAt = requestFinishedAt(request);
+    if (!startedAt || !finishedAt) return;
+
+    const key = owner.id || `${owner.role}:${normalizeText(owner.name)}`;
+    const hours = Math.max(0, (finishedAt - startedAt) / (60 * 60 * 1000));
+    const allowedHours = requestAllowedHours(request, startedAt);
+    const onTime = requestWasAnsweredOnTime(request, finishedAt);
+    const current = responders.get(key) || {
+      id: key,
+      name: owner.name,
+      role: owner.role,
+      roleLabel: roleLabels[owner.role] || "Responsável",
+      total: 0,
+      onTime: 0,
+      late: 0,
+      totalHours: 0,
+      totalAllowedHours: 0,
+      fastestHours: Number.POSITIVE_INFINITY,
+      fastestTitle: "Sem resposta rápida registrada",
+    };
+
+    current.total += 1;
+    current.onTime += onTime ? 1 : 0;
+    current.late += onTime ? 0 : 1;
+    current.totalHours += hours;
+    current.totalAllowedHours += allowedHours;
+
+    if (hours < current.fastestHours) {
+      current.fastestHours = hours;
+      current.fastestTitle = request.title || "Solicitação sem título";
+    }
+
+    responders.set(key, current);
+  });
+
+  return [...responders.values()]
+    .map((stats) => {
+      const averageHours = stats.total ? stats.totalHours / stats.total : 0;
+      const onTimePercent = stats.total ? Math.round((stats.onTime / stats.total) * 100) : 0;
+      return {
+        ...stats,
+        averageHours,
+        onTimePercent,
+        averageLabel: formatDurationHours(averageHours),
+        fastestLabel: Number.isFinite(stats.fastestHours) ? formatDurationHours(stats.fastestHours) : "--",
+        score: responderPerformanceScore(stats),
+      };
+    })
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      if (right.onTimePercent !== left.onTimePercent) return right.onTimePercent - left.onTimePercent;
+      if (left.averageHours !== right.averageHours) return left.averageHours - right.averageHours;
+      return right.total - left.total;
+    });
+}
+
+function performanceResponder(request) {
+  const responseName = requestResponseByName(request);
+  const cleanResponseName =
+    responseName === "Ainda sem resposta" || responseName === "Não informado" ? "" : responseName;
+  const name = cleanResponseName || cleanDisplayText(request.assigneeName) || "Responsável";
+  const role = cleanDisplayText(request.responseByRole) || inferPerformanceRole(name, request);
+  const id =
+    cleanDisplayText(request.responseBy) ||
+    cleanDisplayText(request.assigneeId) ||
+    `${role}-${normalizeText(name).replace(/[^a-z0-9]+/g, "-")}`;
+
+  return {
+    id,
+    name,
+    role,
+  };
+}
+
+function inferPerformanceRole(name, request) {
+  const normalizedName = normalizeText(name);
+  if (normalizedName.includes("admin")) return "admin";
+  if (normalizedName.includes("engen")) return "engineer";
+  if (request.type === "material_list") return "engineer";
+  if (request.type === "manager_request") return "admin";
+  return cleanDisplayText(request.assigneeRole) || "manager";
+}
+
+function responderPerformanceScore(stats) {
+  if (!stats.total) return 0;
+
+  const onTimeRate = stats.onTime / stats.total;
+  const averageHours = stats.totalHours / stats.total;
+  const averageAllowedHours = Math.max(1, stats.totalAllowedHours / stats.total);
+  const speedRatio = averageHours / averageAllowedHours;
+  const speedRate = Math.max(0, Math.min(1, (1.15 - speedRatio) / 1.15));
+  const volumeRate = Math.min(1, stats.total / 10);
+
+  return Math.max(0, Math.min(100, Math.round(onTimeRate * 65 + speedRate * 25 + volumeRate * 10)));
+}
+
+function requestStartedAt(request) {
+  return validDate(request.createdAt) || validDate(request.updatedAt);
+}
+
+function requestFinishedAt(request) {
+  return validDate(request.responseAt) || validDate(request.updatedAt) || validDate(request.createdAt);
+}
+
+function requestAllowedHours(request, startedAt) {
+  const dueDate = requestDueDateEnd(request);
+  if (!dueDate || !startedAt) return 24;
+  return Math.max(1, (dueDate - startedAt) / (60 * 60 * 1000));
+}
+
+function requestWasAnsweredOnTime(request, finishedAt) {
+  const dueDate = requestDueDateEnd(request);
+  if (!dueDate || !finishedAt) return true;
+  return finishedAt <= dueDate;
+}
+
+function requestDueDateEnd(request) {
+  if (!request.dueDate) return null;
+  return validDate(`${request.dueDate}T23:59:59`);
+}
+
+function validDate(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function formatDurationHours(hours) {
+  if (!Number.isFinite(hours)) return "--";
+  if (hours < 1) return "menos de 1h";
+  if (hours < 24) return `${Math.round(hours)}h`;
+
+  const days = Math.floor(hours / 24);
+  const remainingHours = Math.round(hours % 24);
+  if (remainingHours === 0) return `${days}d`;
+  return `${days}d ${remainingHours}h`;
+}
+
 function renderList() {
   const visibleRequests = filteredRequests();
   const showingMaterialLists = isAdmin() && adminView === "material";
@@ -1607,6 +1823,133 @@ async function attachmentsFromInput(input) {
   }
 
   return Promise.all(files.map(fileToAttachment));
+}
+
+function bindFileUploadEvents() {
+  document.addEventListener("change", (event) => {
+    const input = uploadInputFromTarget(event.target);
+    if (!input) return;
+    updateFileFieldState(input);
+  });
+
+  document.addEventListener("dragenter", handleUploadDrag);
+  document.addEventListener("dragover", handleUploadDrag);
+  document.addEventListener("dragleave", handleUploadDragLeave);
+  document.addEventListener("drop", handleUploadDrop);
+}
+
+function uploadInputFromTarget(target) {
+  if (!(target instanceof Element)) return null;
+  const input = target.matches('.file-field input[type="file"]')
+    ? target
+    : target.closest?.('.file-field input[type="file"]');
+  return input instanceof HTMLInputElement ? input : null;
+}
+
+function uploadFieldFromTarget(target) {
+  if (!(target instanceof Element)) return null;
+  return target.closest(".file-field");
+}
+
+function hasFileDragData(event) {
+  return Array.from(event.dataTransfer?.types || []).includes("Files");
+}
+
+function handleUploadDrag(event) {
+  if (!hasFileDragData(event)) return;
+
+  const field = uploadFieldFromTarget(event.target);
+  if (!field) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  field.classList.add("drag-over");
+}
+
+function handleUploadDragLeave(event) {
+  const field = uploadFieldFromTarget(event.target);
+  if (!field || field.contains(event.relatedTarget)) return;
+  field.classList.remove("drag-over");
+}
+
+function handleUploadDrop(event) {
+  if (!hasFileDragData(event)) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  document.querySelectorAll(".file-field.drag-over").forEach((field) => field.classList.remove("drag-over"));
+
+  const field = uploadFieldFromTarget(event.target);
+  if (!field) return;
+
+  const input = field.querySelector('input[type="file"]');
+  if (!(input instanceof HTMLInputElement)) return;
+
+  const droppedFileList = event.dataTransfer?.files || null;
+  const droppedFiles = Array.from(droppedFileList || []);
+  if (!droppedFiles.length) return;
+
+  const validFiles = droppedFiles.filter(isAcceptedUploadFile);
+  if (validFiles.length !== droppedFiles.length) {
+    showToast("Anexe apenas imagens ou PDFs.");
+    return;
+  }
+
+  if (validFiles.length > maxAttachmentFiles) {
+    showToast(`Envie no máximo ${maxAttachmentFiles} anexos por vez.`);
+    return;
+  }
+
+  if (setUploadInputFiles(input, input.multiple ? validFiles : validFiles.slice(0, 1), droppedFileList)) {
+    showToast(`${validFiles.length} arquivo${validFiles.length === 1 ? "" : "s"} selecionado${validFiles.length === 1 ? "" : "s"}.`);
+  }
+}
+
+function isAcceptedUploadFile(file) {
+  const name = String(file?.name || "").toLowerCase();
+  return file?.type?.startsWith("image/") || file?.type === "application/pdf" || name.endsWith(".pdf");
+}
+
+function setUploadInputFiles(input, files, sourceFileList = null) {
+  if (typeof DataTransfer === "undefined") {
+    if (sourceFileList && sourceFileList.length === files.length) {
+      try {
+        input.files = sourceFileList;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      } catch {
+        // Continua para o aviso abaixo quando o navegador bloquear a atribuicao.
+      }
+    }
+    showToast("Este navegador não permitiu arrastar arquivos. Use selecionar arquivo.");
+    return false;
+  }
+
+  const transfer = new DataTransfer();
+  files.forEach((file) => transfer.items.add(file));
+  input.files = transfer.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
+
+function updateFileFieldState(input) {
+  const field = input.closest(".file-field");
+  const hint = field?.querySelector(".input-hint");
+  if (!field || !hint) return;
+
+  if (!hint.dataset.defaultText) {
+    hint.dataset.defaultText = hint.textContent;
+  }
+
+  const count = input.files?.length || 0;
+  field.classList.toggle("has-files", count > 0);
+  hint.textContent = count
+    ? `${count} arquivo${count === 1 ? "" : "s"} selecionado${count === 1 ? "" : "s"}. Clique para trocar ou arraste novos arquivos aqui.`
+    : hint.dataset.defaultText;
+}
+
+function resetFileFieldStates(scope = document) {
+  scope.querySelectorAll('.file-field input[type="file"]').forEach(updateFileFieldState);
 }
 
 async function prepareFileForUpload(file) {
@@ -2089,6 +2432,7 @@ async function resolveSelected() {
     showNotificationResult(result.notification, "Resposta salva.");
     elements.responseInput.value = result.request.response || "";
     elements.responseAttachmentsInput.value = "";
+    updateFileFieldState(elements.responseAttachmentsInput);
   } catch (error) {
     showToast(error.message);
   }
@@ -2699,6 +3043,7 @@ function openForm() {
   if (!isAdmin()) return;
 
   elements.form.reset();
+  resetFileFieldStates(elements.form);
   elements.adminRequestType.value = adminView === "material" ? "material_list" : "admin_task";
   elements.requestModalTitle.textContent = adminView === "material" ? "Nova lista de material" : "Nova solicitação";
   renderAssigneeOptions();
@@ -2836,6 +3181,7 @@ async function submitManagerRequest(event) {
   const saved = await addRequest(new FormData(elements.managerForm));
   if (saved) {
     elements.managerForm.reset();
+    resetFileFieldStates(elements.managerForm);
     applyManagerRequestDeadline();
   }
 }
@@ -2907,6 +3253,7 @@ function escapeHtml(value) {
 function bindEvents() {
   elements.loginForm.addEventListener("submit", handleLogin);
   elements.logoutButton.addEventListener("click", logout);
+  bindFileUploadEvents();
 
   elements.navItems.forEach((button) => {
     button.addEventListener("click", () => {
@@ -2938,6 +3285,11 @@ function bindEvents() {
 
   elements.materialListsButton.addEventListener("click", () => {
     adminView = "material";
+    renderAdminView();
+  });
+
+  elements.performanceViewButton.addEventListener("click", () => {
+    adminView = "performance";
     renderAdminView();
   });
 
