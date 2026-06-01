@@ -841,6 +841,10 @@ async function handleUpdateRequest(request, response, data, currentUser, request
       ...newResponseAttachments,
     ],
     updatedAt: now,
+    responseBy: nextStatus === "resolvida" ? currentUser.id : previous.responseBy || "",
+    responseByName: nextStatus === "resolvida" ? currentUser.name : previous.responseByName || "",
+    responseByRole: nextStatus === "resolvida" ? currentUser.role : previous.responseByRole || "",
+    responseAt: nextStatus === "resolvida" ? now : previous.responseAt || "",
     history,
   };
 

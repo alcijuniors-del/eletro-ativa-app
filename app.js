@@ -2271,6 +2271,8 @@ function printPersonalTasksPdf() {
 function printableRequestHtml(request) {
   const attachments = Array.isArray(request.attachments) ? request.attachments : [];
   const responseAttachments = Array.isArray(request.responseAttachments) ? request.responseAttachments : [];
+  const requesterName = requestCreatedByName(request);
+  const responseAuthor = requestResponseByName(request);
   const generatedAt = new Date().toLocaleString("pt-BR", {
     dateStyle: "short",
     timeStyle: "short",
@@ -2396,6 +2398,8 @@ function printableRequestHtml(request) {
 
           <section class="meta">
             <div class="box"><span>Gerente/Loja</span><strong>${escapeHtml(request.manager)}</strong></div>
+            <div class="box"><span>Quem solicitou</span><strong>${escapeHtml(requesterName)}</strong></div>
+            <div class="box"><span>Quem respondeu</span><strong>${escapeHtml(responseAuthor)}</strong></div>
             <div class="box"><span>Setor</span><strong>${escapeHtml(request.department)}</strong></div>
             <div class="box"><span>Prioridade</span><strong>${escapeHtml(priorityLabels[request.priority])}</strong></div>
             <div class="box"><span>Prazo</span><strong>${escapeHtml(formatDate(request.dueDate))}</strong></div>
@@ -2457,7 +2461,36 @@ function printableAttachments(attachments, title) {
           </div>`
         : ""
     }
-  `;
+	  `;
+}
+
+function requestCreatedByName(request) {
+  return cleanDisplayText(request?.createdByName) || cleanDisplayText(request?.manager) || "Não informado";
+}
+
+function requestResponseByName(request) {
+  if (!cleanDisplayText(request?.response)) return "Ainda sem resposta";
+  return (
+    cleanDisplayText(request?.responseByName) ||
+    cleanDisplayText(request?.respondedByName) ||
+    cleanDisplayText(request?.resolvedByName) ||
+    inferResponseAuthorFromHistory(request?.history) ||
+    cleanDisplayText(request?.assigneeName) ||
+    "Não informado"
+  );
+}
+
+function inferResponseAuthorFromHistory(history = []) {
+  if (!Array.isArray(history)) return "";
+  for (const entry of [...history].reverse()) {
+    const match = String(entry || "").match(/por\s+(.+)$/i);
+    if (match?.[1]) return cleanDisplayText(match[1]);
+  }
+  return "";
+}
+
+function cleanDisplayText(value) {
+  return String(value || "").trim();
 }
 
 function printablePersonalTasksHtml(tasks) {
