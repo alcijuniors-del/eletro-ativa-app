@@ -1821,7 +1821,7 @@ function attachmentExtension(mimeType) {
 
 function findAttachmentRecord(requests, currentUser, attachmentId) {
   for (const taskRequest of requests) {
-    if (currentUser.role !== "admin" && taskRequest.createdBy !== currentUser.id) continue;
+    if (!canViewRequestAttachment(taskRequest, currentUser)) continue;
 
     const attachments = [
       ...(Array.isArray(taskRequest.attachments) ? taskRequest.attachments : []),
@@ -1832,6 +1832,11 @@ function findAttachmentRecord(requests, currentUser, attachmentId) {
   }
 
   return null;
+}
+
+function canViewRequestAttachment(taskRequest, currentUser) {
+  if (currentUser.role === "admin") return true;
+  return taskRequest.createdBy === currentUser.id || taskRequest.assigneeId === currentUser.id;
 }
 
 function isPdfMime(type) {

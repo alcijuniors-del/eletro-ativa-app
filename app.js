@@ -1484,7 +1484,20 @@ function isPdfAttachment(attachment) {
 }
 
 function attachmentSource(attachment) {
-  return String(attachment?.url || attachment?.dataUrl || "");
+  return normalizedAttachmentSource(attachment?.url || attachment?.dataUrl || "");
+}
+
+function normalizedAttachmentSource(value) {
+  const source = String(value || "");
+  if (!source || source.startsWith("data:") || source.startsWith("blob:") || /^[a-z][a-z0-9+.-]*:/i.test(source)) {
+    return source;
+  }
+
+  if (source.startsWith("/") && window.location.protocol === "file:") {
+    return `https://eletro-ativa-app.onrender.com${source}`;
+  }
+
+  return new URL(source, window.location.origin).href;
 }
 
 function renderAttachmentGrid(container, attachments = []) {
