@@ -122,6 +122,10 @@
               <span aria-hidden="true">□</span>
               Solicitações
             </button>
+            <button class="ghost-button" id="material-lists-button" type="button" data-admin-only>
+              <span aria-hidden="true">L</span>
+              Listas de material
+            </button>
             <button class="ghost-button" id="personal-tasks-button" type="button" data-admin-only>
               <span aria-hidden="true">!</span>
               Minhas pendências
@@ -137,6 +141,14 @@
             <button class="ghost-button" id="export-button" type="button" title="Exportar CSV" data-admin-only data-requests-admin-view>
               <span aria-hidden="true">⇩</span>
               Exportar
+            </button>
+            <button class="ghost-button" id="backup-button" type="button" title="Baixar backup" data-admin-only data-requests-admin-view>
+              <span aria-hidden="true">B</span>
+              Backup
+            </button>
+            <button class="ghost-button" id="change-password-button" type="button" title="Trocar senha">
+              <span aria-hidden="true">*</span>
+              Senha
             </button>
             <button class="primary-button" id="open-form-button" type="button" data-admin-only data-requests-admin-view>
               <span aria-hidden="true">+</span>
@@ -161,6 +173,22 @@
           <article class="metric">
             <span class="metric-label">Concluídas</span>
             <strong id="metric-done">0</strong>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Alta abertas</span>
+            <strong id="metric-high">0</strong>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Com anexos</span>
+            <strong id="metric-attachments">0</strong>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Tempo médio</span>
+            <strong id="metric-average">0d</strong>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Reuniões</span>
+            <strong id="metric-meetings">0</strong>
           </article>
         </section>
 
@@ -226,7 +254,7 @@
               <label class="form-wide file-field">
                 Anexos da solicitação
                 <input name="attachments" type="file" accept="image/*,application/pdf" multiple />
-                <span class="input-hint">Até 5 arquivos. Use imagens ou PDFs.</span>
+                <span class="input-hint">Até 12 arquivos. Use imagens ou PDFs.</span>
               </label>
             </div>
 
@@ -365,7 +393,7 @@
               <span id="meeting-count-available">0</span>
             </button>
             <button class="manager-tab" type="button" data-meeting-tab="calendario">
-              Calendário Alcir
+              Calendário Alcir - Agendar
               <span id="meeting-count-calendar">0</span>
             </button>
           </div>
@@ -373,35 +401,64 @@
           <div class="meeting-reminder hidden" id="meeting-reminder"></div>
 
           <div class="meeting-admin-panel hidden" id="meeting-admin-panel">
-            <form class="request-form inline-form meeting-slot-form" id="meeting-slot-form">
-              <div class="form-grid">
-                <label>
-                  Data
-                  <input name="date" type="date" required />
-                </label>
-                <label>
-                  Horário
-                  <input name="time" type="time" required />
-                </label>
-                <label>
-                  Status
-                  <select name="status">
-                    <option value="available">Disponível</option>
-                    <option value="blocked">Fechado</option>
-                  </select>
-                </label>
-                <label class="form-wide">
-                  Anotação
-                  <textarea name="adminNote" rows="3" placeholder="Observação interna ou tema já previsto."></textarea>
-                </label>
-              </div>
-              <div class="modal-actions">
-                <button class="primary-button" type="submit">
-                  <span aria-hidden="true">+</span>
-                  Adicionar horário
-                </button>
-              </div>
-            </form>
+            <div class="meeting-admin-layout">
+              <form class="request-form inline-form meeting-slot-form" id="meeting-slot-form">
+                <strong class="meeting-form-title">Adicionar horário</strong>
+                <div class="form-grid">
+                  <label>
+                    Data
+                    <input name="date" type="date" required />
+                  </label>
+                  <label>
+                    Horário
+                    <select name="time" required>
+                      <option value="11:00">11:00 às 12:00</option>
+                      <option value="17:00">17:00 às 18:00</option>
+                      <option value="18:00">18:00 às 19:00</option>
+                    </select>
+                  </label>
+                  <label>
+                    Status
+                    <select name="status">
+                      <option value="available">Disponível</option>
+                      <option value="blocked">Fechado</option>
+                    </select>
+                  </label>
+                  <label class="form-wide">
+                    Anotação
+                    <textarea name="adminNote" rows="3" placeholder="Observação interna ou tema já previsto."></textarea>
+                  </label>
+                </div>
+                <div class="modal-actions">
+                  <button class="primary-button" type="submit">
+                    <span aria-hidden="true">+</span>
+                    Adicionar
+                  </button>
+                </div>
+              </form>
+              <form class="request-form inline-form meeting-period-form" id="meeting-block-period-form">
+                <strong class="meeting-form-title">Bloquear período</strong>
+                <div class="form-grid">
+                  <label>
+                    Início
+                    <input name="startDate" type="date" required />
+                  </label>
+                  <label>
+                    Fim
+                    <input name="endDate" type="date" required />
+                  </label>
+                  <label class="form-wide">
+                    Anotação
+                    <textarea name="adminNote" rows="3" placeholder="Ex.: viagem"></textarea>
+                  </label>
+                </div>
+                <div class="modal-actions">
+                  <button class="ghost-button" type="submit">
+                    Bloquear período
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
 
           <div class="meeting-calendar hidden" id="meeting-calendar"></div>
@@ -451,7 +508,7 @@
 
               <dl class="detail-meta">
                 <div>
-                  <dt>Gerente</dt>
+                  <dt id="detail-manager-label">Gerente</dt>
                   <dd id="detail-manager"></dd>
                 </div>
                 <div>
@@ -479,7 +536,7 @@
               </section>
 
               <section class="detail-section">
-                <h3>Resposta ao gerente</h3>
+                <h3 id="response-section-title">Resposta ao gerente</h3>
                 <label class="response-box">
                   <textarea id="response-input" rows="6" placeholder="Informe o que foi resolvido, evidências e próximos passos."></textarea>
                 </label>
@@ -489,7 +546,7 @@
                   <label class="file-field response-file-field">
                     Anexar arquivos na resposta
                     <input id="response-attachments-input" type="file" accept="image/*,application/pdf" multiple />
-                    <span class="input-hint">Imagens e PDFs serão adicionados quando você enviar a resposta.</span>
+                    <span class="input-hint">Até 12 arquivos. Imagens e PDFs serão adicionados quando você enviar a resposta.</span>
                   </label>
                 </div>
                 <div class="detail-actions">
@@ -519,14 +576,21 @@
         <div class="modal-header">
           <div>
             <p class="eyebrow">Registro</p>
-            <h2>Nova solicitação</h2>
+            <h2 id="request-modal-title">Nova solicitação</h2>
           </div>
           <button class="icon-button" id="close-form-button" type="button" aria-label="Fechar">×</button>
         </div>
 
         <div class="form-grid">
           <label>
-            Enviar para gerente
+            Tipo
+            <select id="admin-request-type" name="requestType">
+              <option value="admin_task">Solicitação para gerente</option>
+              <option value="material_list">Lista de material para engenheiro</option>
+            </select>
+          </label>
+          <label>
+            Enviar para
             <select id="assignee-input" name="assigneeId" required></select>
           </label>
           <label>
@@ -558,7 +622,7 @@
           <label class="form-wide file-field">
             Anexos da solicitação
             <input name="attachments" type="file" accept="image/*,application/pdf" multiple />
-            <span class="input-hint">Até 5 arquivos. Use imagens ou PDFs.</span>
+            <span class="input-hint">Até 12 arquivos. Use imagens ou PDFs.</span>
           </label>
         </div>
 
@@ -613,7 +677,7 @@
           </label>
           <label id="user-password-label">
             Senha
-            <input name="password" type="password" required autocomplete="new-password" minlength="4" />
+            <input name="password" type="password" required autocomplete="new-password" minlength="8" />
           </label>
         </div>
 

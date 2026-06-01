@@ -3,7 +3,10 @@ const fsSync = require("fs");
 const fs = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
+const zlib = require("zlib");
 const { URL } = require("url");
+const { promisify } = require("util");
+const { execFile } = require("child_process");
 
 loadLocalEnv();
 
@@ -13,17 +16,32 @@ const PUBLIC_DIR = __dirname;
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "app-data.json");
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
+const BACKUP_DIR = path.join(DATA_DIR, "backups");
 const SESSION_COOKIE = "ea_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 const WHATSAPP_API_VERSION = process.env.WHATSAPP_API_VERSION || "v23.0";
 const ADMIN_USERNAME = normalizeUsername(process.env.ADMIN_USERNAME || "admin");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "America/Cuiaba";
-const MAX_JSON_BODY_BYTES = 20 * 1024 * 1024;
-const MAX_ATTACHMENTS_PER_FIELD = 5;
+const MAX_JSON_BODY_BYTES = 90 * 1024 * 1024;
+const MAX_ATTACHMENTS_PER_FIELD = 12;
 const MAX_ATTACHMENT_DATA_LENGTH = 6 * 1024 * 1024;
+const MAX_PDF_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const MAX_FILE_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const MIN_PASSWORD_LENGTH = 8;
+const MAX_LOGIN_ATTEMPTS = 6;
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+const BACKUP_RETENTION = Number(process.env.BACKUP_RETENTION || 7);
+const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const MEETING_TIME_SLOTS = ["11:00", "17:00", "18:00"];
+const MEETING_TIME_SLOT_SET = new Set(MEETING_TIME_SLOTS);
+const MEETING_SLOT_HORIZON_DAYS = Math.max(1, Number(process.env.MEETING_SLOT_HORIZON_DAYS || 365) || 365);
+const MAX_MEETING_BLOCK_DAYS = 365;
 
 const sessions = new Map();
+const loginAttempts = new Map();
+const execFileAsync = promisify(execFile);
+const gzipAsync = promisify(zlib.gzip);
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -104,6 +122,8 @@ server.listen(PORT, HOST, () => {
   process.stdout.write(`Acesso na rede local habilitado em 0.0.0.0:${PORT}\n`);
 });
 
+scheduleAutomaticBackups();
+
 async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     sendJson(response, 200, { ok: true, service: "eletro-ativa-solicitacoes" });
@@ -130,6 +150,32 @@ async function handleApi(request, response, url) {
 
   if (request.method === "GET" && url.pathname === "/api/state") {
     sendJson(response, 200, buildStatePayload(data, currentUser));
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/change-password") {
+    await handleChangePassword(request, response, data, currentUser);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/backups") {
+    requireAdmin(currentUser);
+    sendJson(response, 200, { ok: true, backups: await listBackups() });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/backups") {
+    requireAdmin(currentUser);
+    const backup = await createBackupArchive();
+    await pruneOldBackups();
+    sendJson(response, 201, { ok: true, backup, downloadUrl: `/api/backups/${encodeURIComponent(backup.fileName)}` });
+    return;
+  }
+
+  const backupMatch = url.pathname.match(/^\/api\/backups\/([^/]+)$/);
+  if (backupMatch && request.method === "GET") {
+    requireAdmin(currentUser);
+    await handleBackupDownload(response, backupMatch[1]);
     return;
   }
 
@@ -170,6 +216,12 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/meetings") {
     requireAdmin(currentUser);
     await handleCreateMeetingSlot(request, response, data, currentUser);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/meetings/block-period") {
+    requireAdmin(currentUser);
+    await handleBlockMeetingPeriod(request, response, data, currentUser);
     return;
   }
 
@@ -256,15 +308,25 @@ async function handleApi(request, response, url) {
 }
 
 async function handleLogin(request, response) {
-  const body = await readJsonBody(request);
+  const body = await readRequestBody(request);
   const data = await readData();
   const username = normalizeUsername(body.username);
+  const loginKey = loginAttemptKey(request, username);
+
+  if (isLoginLocked(loginKey)) {
+    sendJson(response, 429, { ok: false, error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." });
+    return;
+  }
+
   const user = data.users.find((item) => normalizeUsername(item.username) === username);
 
   if (!user || !verifyPassword(body.password, user.passwordHash)) {
+    registerFailedLogin(loginKey);
     sendJson(response, 401, { ok: false, error: "Usuario ou senha invalidos." });
     return;
   }
+
+  loginAttempts.delete(loginKey);
 
   const token = crypto.randomBytes(32).toString("hex");
   sessions.set(token, {
@@ -299,22 +361,54 @@ function handleLogout(request, response) {
   );
 }
 
+async function handleChangePassword(request, response, data, currentUser) {
+  const body = await readRequestBody(request);
+  const currentPassword = String(body.currentPassword || "");
+  const newPassword = String(body.newPassword || "").trim();
+
+  if (!verifyPassword(currentPassword, currentUser.passwordHash)) {
+    sendJson(response, 400, { ok: false, error: "Senha atual incorreta." });
+    return;
+  }
+
+  const passwordError = passwordValidationError(newPassword);
+  if (passwordError) {
+    sendJson(response, 400, { ok: false, error: passwordError });
+    return;
+  }
+
+  const index = data.users.findIndex((user) => user.id === currentUser.id);
+  if (index === -1) {
+    sendJson(response, 404, { ok: false, error: "Usuario nao encontrado." });
+    return;
+  }
+
+  data.users[index] = {
+    ...data.users[index],
+    passwordHash: hashPassword(newPassword),
+    passwordUpdatedAt: new Date().toISOString(),
+  };
+  await writeData(data);
+  sendJson(response, 200, { ok: true });
+}
+
 async function handleCreateRequest(request, response, data, currentUser) {
-  const body = await readJsonBody(request);
+  const body = await readRequestBody(request);
   const now = new Date().toISOString();
   const priority = normalizePriority(body.priority);
   const isManager = currentUser.role === "manager";
   const requestType = normalizeRequestType(body.requestType, currentUser);
-  const assignee = resolveRequestAssignee(data.users, body.assigneeId, requestType);
+  const assignee = resolveRequestAssignee(data.users, body.assigneeId, requestType, currentUser);
+  const usesAssigneeAsOwner = ["admin_task", "material_list"].includes(requestType);
   const requesterName = currentUser.role === "admin" ? "Administração" : currentUser.name;
   const requesterDepartment = currentUser.role === "admin" ? "Regional Alci Jr." : currentUser.department;
 
   const taskRequest = {
     id: createId("request"),
     type: requestType,
-    manager: requestType === "admin_task" && assignee ? assignee.name : isManager ? currentUser.name : cleanText(body.manager, "Gerente nao informado"),
+    manager: usesAssigneeAsOwner && assignee ? assignee.name : isManager ? currentUser.name : cleanText(body.manager, "Gerente nao informado"),
     department:
-      requestType === "admin_task" && assignee
+      usesAssigneeAsOwner && assignee
         ? assignee.department
         : isManager
           ? currentUser.department
@@ -345,14 +439,14 @@ async function handleCreateRequest(request, response, data, currentUser) {
   }
 
   if (requestType === "material_list" && !assignee) {
-    sendJson(response, 400, { ok: false, error: "Cadastre o usuario Paulo como engenheiro antes de enviar lista de material." });
+    sendJson(response, 400, { ok: false, error: "Cadastre ou selecione um engenheiro antes de enviar lista de material." });
     return;
   }
 
   data.requests = [taskRequest, ...data.requests];
   await writeData(data);
 
-  const shouldNotify = !(currentUser.role === "admin" && body.skipNotification === true);
+  const shouldNotify = !(currentUser.role === "admin" && isTruthy(body.skipNotification));
   const notification = shouldNotify ? await notifyAdmin(taskRequest) : null;
   sendJson(response, 201, {
     ok: true,
@@ -366,7 +460,7 @@ async function handleCreateRequest(request, response, data, currentUser) {
 }
 
 async function handleCreatePersonalTask(request, response, data, currentUser) {
-  const body = await readJsonBody(request);
+  const body = await readRequestBody(request);
   const now = new Date().toISOString();
   const title = cleanText(body.title, "Pendencia sem titulo");
   const dueDate = normalizeDateInput(body.dueDate, todayInBusinessTimezone());
@@ -394,7 +488,7 @@ async function handleCreatePersonalTask(request, response, data, currentUser) {
 }
 
 async function handleUpdatePersonalTask(request, response, data, currentUser, taskId) {
-  const body = await readJsonBody(request);
+  const body = await readRequestBody(request);
   const index = data.personalTasks.findIndex((item) => item.id === taskId);
 
   if (index === -1) {
@@ -452,7 +546,7 @@ async function handleDeletePersonalTask(response, data, taskId) {
 }
 
 async function handleCreateMeetingSlot(request, response, data, currentUser) {
-  const body = await readJsonBody(request);
+  const body = await readRequestBody(request);
   const now = new Date().toISOString();
   const status = normalizeMeetingStatus(body.status);
 
@@ -484,6 +578,11 @@ async function handleCreateMeetingSlot(request, response, data, currentUser) {
     return;
   }
 
+  if (!isAllowedMeetingTime(meeting.time)) {
+    sendJson(response, 400, { ok: false, error: "Use apenas 11:00, 17:00 ou 18:00 para reunioes." });
+    return;
+  }
+
   const existingIndex = data.meetings.findIndex((item) => item.date === meeting.date && item.time === meeting.time);
   if (existingIndex !== -1) {
     const existing = data.meetings[existingIndex];
@@ -510,7 +609,7 @@ async function handleCreateMeetingSlot(request, response, data, currentUser) {
 }
 
 async function handleUpdateMeetingSlot(request, response, data, meetingId) {
-  const body = await readJsonBody(request);
+  const body = await readRequestBody(request);
   const index = data.meetings.findIndex((item) => item.id === meetingId);
 
   if (index === -1) {
@@ -531,6 +630,11 @@ async function handleUpdateMeetingSlot(request, response, data, meetingId) {
     updatedAt: now,
   };
 
+  if (!isAllowedMeetingTime(nextMeeting.time)) {
+    sendJson(response, 400, { ok: false, error: "Use apenas 11:00, 17:00 ou 18:00 para reunioes." });
+    return;
+  }
+
   if (status !== "booked") {
     nextMeeting.topic = "";
     nextMeeting.agenda = "";
@@ -546,13 +650,91 @@ async function handleUpdateMeetingSlot(request, response, data, meetingId) {
   sendJson(response, 200, { ok: true, meeting: nextMeeting, meetings: sortMeetings(data.meetings) });
 }
 
+async function handleBlockMeetingPeriod(request, response, data, currentUser) {
+  const body = await readRequestBody(request);
+  const startDate = normalizeDateInput(body.startDate, "");
+  const endDate = normalizeDateInput(body.endDate, "");
+  const dates = datesBetween(startDate, endDate);
+
+  if (!startDate || !endDate || dates.length === 0) {
+    sendJson(response, 400, { ok: false, error: "Informe inicio e fim do periodo." });
+    return;
+  }
+
+  if (dates.length > MAX_MEETING_BLOCK_DAYS) {
+    sendJson(response, 400, { ok: false, error: `Bloqueie no maximo ${MAX_MEETING_BLOCK_DAYS} dias por vez.` });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const adminNote = cleanText(body.adminNote, "Periodo bloqueado");
+  let blockedCount = 0;
+  let bookedCount = 0;
+
+  dates.forEach((date) => {
+    MEETING_TIME_SLOTS.forEach((time) => {
+      const existingIndex = data.meetings.findIndex((meeting) => meeting.date === date && meeting.time === time);
+      if (existingIndex === -1) {
+        data.meetings.push({
+          id: createId("meeting"),
+          date,
+          time,
+          status: "blocked",
+          adminNote,
+          topic: "",
+          agenda: "",
+          bookedBy: "",
+          bookedByName: "",
+          bookedByDepartment: "",
+          bookedByUnit: "",
+          createdBy: currentUser.id,
+          createdAt: now,
+          updatedAt: now,
+          bookedAt: "",
+        });
+        blockedCount += 1;
+        return;
+      }
+
+      const existing = data.meetings[existingIndex];
+      if (existing.status === "booked") {
+        bookedCount += 1;
+        return;
+      }
+
+      data.meetings[existingIndex] = {
+        ...existing,
+        status: "blocked",
+        adminNote,
+        topic: "",
+        agenda: "",
+        bookedBy: "",
+        bookedByName: "",
+        bookedByDepartment: "",
+        bookedByUnit: "",
+        bookedAt: "",
+        updatedAt: now,
+      };
+      blockedCount += 1;
+    });
+  });
+
+  await writeData(data);
+  sendJson(response, 200, {
+    ok: true,
+    blockedCount,
+    bookedCount,
+    meetings: sortMeetings(data.meetings),
+  });
+}
+
 async function handleBookMeeting(request, response, data, currentUser, meetingId) {
   if (currentUser.role !== "manager") {
     sendJson(response, 403, { ok: false, error: "Apenas gestores podem agendar reunioes." });
     return;
   }
 
-  const body = await readJsonBody(request);
+  const body = await readRequestBody(request);
   const topic = cleanText(body.topic, "");
   const agenda = cleanText(body.agenda, "");
   const index = data.meetings.findIndex((item) => item.id === meetingId);
@@ -564,6 +746,11 @@ async function handleBookMeeting(request, response, data, currentUser, meetingId
 
   if (data.meetings[index].status !== "available") {
     sendJson(response, 409, { ok: false, error: "Este horario nao esta disponivel." });
+    return;
+  }
+
+  if (!isAllowedMeetingTime(data.meetings[index].time)) {
+    sendJson(response, 409, { ok: false, error: "Este horario nao esta liberado para reunioes." });
     return;
   }
 
@@ -605,7 +792,7 @@ async function handleDeleteMeetingSlot(response, data, meetingId) {
 }
 
 async function handleUpdateRequest(request, response, data, currentUser, requestId) {
-  const body = await readJsonBody(request);
+  const body = await readRequestBody(request);
   const index = data.requests.findIndex((item) => item.id === requestId);
 
   if (index === -1) {
@@ -740,7 +927,7 @@ async function handleAttachmentDownload(response, data, currentUser, attachmentI
 }
 
 async function handleCreateUser(request, response, data) {
-  const body = await readJsonBody(request);
+  const body = await readRequestBody(request);
   const username = normalizeUsername(body.username);
 
   if (!username) {
@@ -753,6 +940,13 @@ async function handleCreateUser(request, response, data) {
     return;
   }
 
+  const password = cleanText(body.password, "");
+  const passwordError = passwordValidationError(password);
+  if (passwordError) {
+    sendJson(response, 400, { ok: false, error: passwordError });
+    return;
+  }
+
   const user = {
     id: createId("user"),
     name: cleanText(body.name, "Gerente"),
@@ -760,7 +954,7 @@ async function handleCreateUser(request, response, data) {
     unit: normalizeUnit(body.unit),
     username,
     phone: normalizePhone(body.phone),
-    passwordHash: hashPassword(cleanText(body.password, "1234")),
+    passwordHash: hashPassword(password),
     role: normalizeUserRole(body.role),
     createdAt: new Date().toISOString(),
   };
@@ -771,7 +965,7 @@ async function handleCreateUser(request, response, data) {
 }
 
 async function handleUpdateUser(request, response, data, userId) {
-  const body = await readJsonBody(request);
+  const body = await readRequestBody(request);
   const index = data.users.findIndex((item) => item.id === userId);
 
   if (index === -1 || data.users[index].role === "admin") {
@@ -807,8 +1001,14 @@ async function handleUpdateUser(request, response, data, userId) {
     updatedAt: new Date().toISOString(),
   };
 
-  if (String(body.password || "").trim()) {
-    nextUser.passwordHash = hashPassword(String(body.password).trim());
+  const nextPassword = String(body.password || "").trim();
+  if (nextPassword) {
+    const passwordError = passwordValidationError(nextPassword);
+    if (passwordError) {
+      sendJson(response, 400, { ok: false, error: passwordError });
+      return;
+    }
+    nextUser.passwordHash = hashPassword(nextPassword);
   }
 
   data.users[index] = nextUser;
@@ -830,14 +1030,14 @@ async function handleDeleteUser(response, data, userId) {
 }
 
 async function handleWhatsAppNotification(request, response) {
-  const body = await readJsonBody(request);
+  const body = await readRequestBody(request);
   const taskRequest = sanitizeTaskRequest(body.request ?? body);
   const result = await notifyAdmin(taskRequest);
   sendJson(response, result.ok ? 200 : 502, result);
 }
 
 async function handleRequesterWhatsAppNotification(request, response) {
-  const body = await readJsonBody(request);
+  const body = await readRequestBody(request);
   const taskRequest = sanitizeTaskRequest(body.request ?? body);
   const result = await notifyRequester(taskRequest);
   sendJson(response, result.ok ? 200 : 502, result);
@@ -916,8 +1116,9 @@ async function readData() {
   };
   const migrated = await migrateLegacyAttachments(data.requests);
   const migratedHighPriorityDueDates = migrateHighPriorityDueDates(data.requests);
+  const updatedMeetingSchedule = ensureMeetingSchedule(data.meetings);
 
-  if (migrated || migratedHighPriorityDueDates) {
+  if (migrated || migratedHighPriorityDueDates || updatedMeetingSchedule) {
     await writeData(data);
   }
 
@@ -926,7 +1127,91 @@ async function readData() {
 
 async function writeData(data) {
   await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(DATA_FILE, `${JSON.stringify(data)}\n`);
+  const tempFile = `${DATA_FILE}.tmp-${process.pid}-${Date.now()}`;
+  await fs.writeFile(tempFile, `${JSON.stringify(data)}\n`);
+  await fs.rename(tempFile, DATA_FILE);
+}
+
+function scheduleAutomaticBackups() {
+  setTimeout(() => createBackupArchive().then(pruneOldBackups).catch(logBackupError), 5000);
+  setInterval(() => createBackupArchive().then(pruneOldBackups).catch(logBackupError), BACKUP_INTERVAL_MS);
+}
+
+async function createBackupArchive() {
+  await ensureDataFile();
+  await fs.mkdir(UPLOAD_DIR, { recursive: true });
+  await fs.mkdir(BACKUP_DIR, { recursive: true });
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const fileName = `backup-${stamp}.tar.gz`;
+  const backupPath = path.join(BACKUP_DIR, fileName);
+
+  try {
+    await execFileAsync("tar", ["-czf", backupPath, "-C", DATA_DIR, "app-data.json", "uploads"]);
+  } catch {
+    const raw = await fs.readFile(DATA_FILE, "utf8");
+    const fallbackName = `backup-${stamp}.json.gz`;
+    const fallbackPath = path.join(BACKUP_DIR, fallbackName);
+    await fs.writeFile(fallbackPath, await gzipAsync(raw));
+    return backupInfo(fallbackPath);
+  }
+
+  return backupInfo(backupPath);
+}
+
+async function listBackups() {
+  await fs.mkdir(BACKUP_DIR, { recursive: true });
+  const entries = await fs.readdir(BACKUP_DIR);
+  const backups = await Promise.all(
+    entries
+      .filter((fileName) => /^backup-[\w.-]+\.(tar\.gz|json\.gz)$/.test(fileName))
+      .map((fileName) => backupInfo(path.join(BACKUP_DIR, fileName))),
+  );
+  return backups.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+}
+
+async function backupInfo(filePath) {
+  const stats = await fs.stat(filePath);
+  const fileName = path.basename(filePath);
+  return {
+    fileName,
+    size: stats.size,
+    createdAt: stats.mtime.toISOString(),
+    downloadUrl: `/api/backups/${encodeURIComponent(fileName)}`,
+  };
+}
+
+async function pruneOldBackups() {
+  const backups = await listBackups();
+  await Promise.all(
+    backups.slice(BACKUP_RETENTION).map((backup) => fs.unlink(path.join(BACKUP_DIR, backup.fileName)).catch(() => null)),
+  );
+}
+
+async function handleBackupDownload(response, encodedFileName) {
+  const fileName = path.basename(decodeURIComponent(encodedFileName));
+  if (!/^backup-[\w.-]+\.(tar\.gz|json\.gz)$/.test(fileName)) {
+    sendJson(response, 400, { ok: false, error: "Backup invalido." });
+    return;
+  }
+
+  const filePath = path.join(BACKUP_DIR, fileName);
+  if (!fsSync.existsSync(filePath)) {
+    sendJson(response, 404, { ok: false, error: "Backup nao encontrado." });
+    return;
+  }
+
+  const file = await fs.readFile(filePath);
+  response.writeHead(200, {
+    "Content-Type": "application/gzip",
+    "Content-Disposition": `attachment; filename="${encodeHeaderFileName(fileName)}"`,
+    "Cache-Control": "private, no-cache",
+  });
+  response.end(file);
+}
+
+function logBackupError(error) {
+  process.stderr.write(`[backup] ${error.stack || error.message}\n`);
 }
 
 async function ensureDataFile() {
@@ -1021,6 +1306,13 @@ function hashPassword(password) {
   return `pbkdf2:${iterations}:${salt}:${hash}`;
 }
 
+function passwordValidationError(password) {
+  const value = String(password || "");
+  if (value.length < MIN_PASSWORD_LENGTH) return `A senha precisa ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`;
+  if (!/[A-Za-z]/.test(value) || !/\d/.test(value)) return "A senha precisa ter letras e numeros.";
+  return "";
+}
+
 function verifyPassword(password, storedHash = "") {
   if (storedHash.startsWith("plain:")) {
     return storedHash === `plain:${password}`;
@@ -1042,6 +1334,30 @@ function timingSafeEqual(left, right) {
   const rightBuffer = Buffer.from(right);
   if (leftBuffer.length !== rightBuffer.length) return false;
   return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function loginAttemptKey(request, username) {
+  const forwarded = String(request.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  const ip = forwarded || request.socket.remoteAddress || "local";
+  return `${ip}:${username || "anonimo"}`;
+}
+
+function isLoginLocked(key) {
+  const attempt = loginAttempts.get(key);
+  if (!attempt?.lockedUntil) return false;
+  if (attempt.lockedUntil > Date.now()) return true;
+  loginAttempts.delete(key);
+  return false;
+}
+
+function registerFailedLogin(key) {
+  const attempt = loginAttempts.get(key) || { count: 0, lockedUntil: 0 };
+  attempt.count += 1;
+  if (attempt.count >= MAX_LOGIN_ATTEMPTS) {
+    attempt.lockedUntil = Date.now() + LOGIN_LOCK_MS;
+    attempt.count = 0;
+  }
+  loginAttempts.set(key, attempt);
 }
 
 function createId(prefix) {
@@ -1080,7 +1396,7 @@ function normalizeUserRole(value) {
 }
 
 function normalizeRequestType(value, currentUser) {
-  if (currentUser.role === "admin") return "admin_task";
+  if (currentUser.role === "admin") return value === "material_list" ? "material_list" : "admin_task";
   if (value === "material_list") return "material_list";
   return "manager_request";
 }
@@ -1104,6 +1420,35 @@ function normalizeDateInput(value, fallback) {
 function normalizeTimeInput(value) {
   const timeText = String(value || "").trim();
   return /^\d{2}:\d{2}$/.test(timeText) ? timeText : "";
+}
+
+function isTruthy(value) {
+  return value === true || String(value || "").toLowerCase() === "true";
+}
+
+function isAllowedMeetingTime(value) {
+  return MEETING_TIME_SLOT_SET.has(value);
+}
+
+function dateFromInput(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day, 12, 0, 0, 0);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function datesBetween(startDate, endDate) {
+  const start = dateFromInput(startDate);
+  const end = dateFromInput(endDate);
+  if (!start || !end || start > end) return [];
+
+  const dates = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    dates.push(toDateInputValue(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
 }
 
 function todayInBusinessTimezone() {
@@ -1187,7 +1532,25 @@ function sanitizeTaskRequest(request = {}) {
 async function sanitizeAttachments(value = []) {
   if (!Array.isArray(value)) return [];
 
-  const attachments = await Promise.all(value.slice(0, MAX_ATTACHMENTS_PER_FIELD).map(async (attachment) => {
+  if (value.length > MAX_ATTACHMENTS_PER_FIELD) {
+    const error = new Error(`Envie no maximo ${MAX_ATTACHMENTS_PER_FIELD} anexos por vez.`);
+    error.status = 400;
+    throw error;
+  }
+
+  const attachments = await Promise.all(value.map(async (attachment) => {
+    if (attachment?.storagePath && attachment?.url) {
+      return {
+        id: cleanText(attachment.id, createId("attachment")).replace(/[^a-z0-9_-]/gi, "").slice(0, 80),
+        name: cleanText(attachment.name, isPdfMime(attachment.type) ? "documento.pdf" : "imagem").slice(0, 120),
+        type: cleanText(attachment.type, "application/octet-stream"),
+        size: Number(attachment.size || 0),
+        storagePath: cleanText(attachment.storagePath, ""),
+        url: cleanText(attachment.url, ""),
+        createdAt: cleanText(attachment.createdAt, new Date().toISOString()),
+      };
+    }
+
     const dataUrl = String(attachment?.dataUrl || "");
     const type = String(attachment?.type || "");
 
@@ -1237,6 +1600,51 @@ async function sanitizeAttachments(value = []) {
   return attachments.filter(Boolean);
 }
 
+async function storeUploadedAttachments(files = []) {
+  if (!Array.isArray(files)) return [];
+  if (files.length > MAX_ATTACHMENTS_PER_FIELD) {
+    const error = new Error(`Envie no maximo ${MAX_ATTACHMENTS_PER_FIELD} anexos por vez.`);
+    error.status = 400;
+    throw error;
+  }
+
+  return Promise.all(files.map(storeUploadedAttachment));
+}
+
+async function storeUploadedAttachment(file) {
+  const originalName = cleanText(file.fileName, "anexo").slice(0, 120);
+  const detectedMimeType = detectAttachmentMimeType(file.buffer, file.contentType, originalName);
+  if (!detectedMimeType) {
+    const error = new Error("Anexo invalido. Envie apenas imagens PNG, JPG, WEBP ou PDF.");
+    error.status = 400;
+    throw error;
+  }
+
+  const maxBytes = detectedMimeType === "application/pdf" ? MAX_PDF_ATTACHMENT_BYTES : MAX_FILE_ATTACHMENT_BYTES;
+  if (file.buffer.length > maxBytes) {
+    const sizeMb = Math.floor(maxBytes / 1024 / 1024);
+    const error = new Error(`Anexo muito grande. Envie arquivos de ate ${sizeMb} MB.`);
+    error.status = 400;
+    throw error;
+  }
+
+  const id = createId("attachment");
+  const extension = attachmentExtension(detectedMimeType);
+  const fileName = `${id}.${extension}`;
+  await fs.mkdir(UPLOAD_DIR, { recursive: true });
+  await fs.writeFile(path.join(UPLOAD_DIR, fileName), file.buffer);
+
+  return {
+    id,
+    name: originalName || (detectedMimeType === "application/pdf" ? "documento.pdf" : "imagem"),
+    type: detectedMimeType,
+    size: file.buffer.length,
+    storagePath: `uploads/${fileName}`,
+    url: `/api/attachments/${encodeURIComponent(id)}`,
+    createdAt: new Date().toISOString(),
+  };
+}
+
 async function migrateLegacyAttachments(requests) {
   let migrated = false;
 
@@ -1284,6 +1692,55 @@ function migrateHighPriorityDueDates(requests) {
   }
 
   return migrated;
+}
+
+function ensureMeetingSchedule(meetings) {
+  const now = new Date().toISOString();
+  let updated = false;
+
+  for (const meeting of meetings) {
+    if (meeting.status === "available" && !isAllowedMeetingTime(meeting.time)) {
+      meeting.status = "blocked";
+      meeting.adminNote = meeting.adminNote || "Horario fora da agenda padrao";
+      meeting.updatedAt = now;
+      updated = true;
+    }
+  }
+
+  const existingKeys = new Set(meetings.map((meeting) => `${meeting.date}|${meeting.time}`));
+  const start = businessToday();
+  for (let dayOffset = 0; dayOffset < MEETING_SLOT_HORIZON_DAYS; dayOffset += 1) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + dayOffset);
+    const dateValue = toDateInputValue(date);
+
+    for (const time of MEETING_TIME_SLOTS) {
+      const key = `${dateValue}|${time}`;
+      if (existingKeys.has(key)) continue;
+
+      meetings.push({
+        id: createId("meeting"),
+        date: dateValue,
+        time,
+        status: "available",
+        adminNote: "Horario disponivel",
+        topic: "",
+        agenda: "",
+        bookedBy: "",
+        bookedByName: "",
+        bookedByDepartment: "",
+        bookedByUnit: "",
+        createdBy: "system",
+        createdAt: now,
+        updatedAt: now,
+        bookedAt: "",
+      });
+      existingKeys.add(key);
+      updated = true;
+    }
+  }
+
+  return updated;
 }
 
 async function storeAttachmentDataUrl(attachment) {
@@ -1337,6 +1794,22 @@ function decodeDataUrl(dataUrl) {
     mimeType: match[1],
     buffer: Buffer.from(match[2], "base64"),
   };
+}
+
+function detectAttachmentMimeType(buffer, contentType = "", fileName = "") {
+  const type = String(contentType || "").toLowerCase().split(";")[0].trim();
+  const lowerName = String(fileName || "").toLowerCase();
+
+  if (buffer.slice(0, 5).toString("utf8") === "%PDF-") return "application/pdf";
+  if (buffer.length >= 8 && buffer[0] === 0x89 && buffer.slice(1, 4).toString("ascii") === "PNG") return "image/png";
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "image/jpeg";
+  if (buffer.length >= 12 && buffer.slice(0, 4).toString("ascii") === "RIFF" && buffer.slice(8, 12).toString("ascii") === "WEBP") {
+    return "image/webp";
+  }
+
+  if (type === "application/pdf" && lowerName.endsWith(".pdf")) return "application/pdf";
+  if (["image/png", "image/jpeg", "image/webp"].includes(type)) return type;
+  return "";
 }
 
 function attachmentExtension(mimeType) {
@@ -1421,7 +1894,9 @@ function visibleMeetings(items, currentUser) {
   if (currentUser.role === "admin") return sortMeetings(meetings);
 
   return sortMeetings(
-    meetings.filter((meeting) => meeting.status === "available" || meeting.bookedBy === currentUser.id),
+    meetings.filter(
+      (meeting) => (meeting.status === "available" && isAllowedMeetingTime(meeting.time)) || meeting.bookedBy === currentUser.id,
+    ),
   );
 }
 
@@ -1453,13 +1928,19 @@ function canRespondToRequest(request, currentUser) {
   return request.assigneeId === currentUser.id;
 }
 
-function resolveRequestAssignee(users, assigneeId, requestType) {
+function resolveRequestAssignee(users, assigneeId, requestType, currentUser) {
   if (requestType === "admin_task") {
     return users.find((user) => user.id === assigneeId && user.role === "manager") || null;
   }
 
   if (requestType === "material_list") {
+    const selectedEngineer = users.find((user) => user.id === assigneeId && user.role === "engineer") || null;
+    if (currentUser?.role === "admin") {
+      return selectedEngineer;
+    }
+
     return (
+      selectedEngineer ||
       users.find((user) => user.role === "engineer" && normalizeUsername(user.username) === "paulo") ||
       users.find((user) => user.role === "engineer" && String(user.name || "").toLowerCase().includes("paulo")) ||
       users.find((user) => user.role === "engineer") ||
@@ -1640,6 +2121,14 @@ async function serveStaticFile(urlPathname, request, response) {
   response.end(file);
 }
 
+async function readRequestBody(request) {
+  const contentType = String(request.headers["content-type"] || "");
+  if (contentType.toLowerCase().startsWith("multipart/form-data")) {
+    return readMultipartBody(request, contentType);
+  }
+  return readJsonBody(request);
+}
+
 async function readJsonBody(request) {
   let raw = "";
 
@@ -1653,6 +2142,85 @@ async function readJsonBody(request) {
   }
 
   return raw ? JSON.parse(raw) : {};
+}
+
+async function readMultipartBody(request, contentType) {
+  const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+  const boundary = boundaryMatch?.[1] || boundaryMatch?.[2];
+  if (!boundary) {
+    const error = new Error("Formulario invalido.");
+    error.status = 400;
+    throw error;
+  }
+
+  const raw = await readRawBody(request, MAX_JSON_BODY_BYTES);
+  const { fields, files } = parseMultipartBuffer(raw, boundary);
+  return {
+    ...fields,
+    attachments: await storeUploadedAttachments(files.attachments || []),
+    responseAttachments: await storeUploadedAttachments(files.responseAttachments || []),
+  };
+}
+
+async function readRawBody(request, limitBytes) {
+  const chunks = [];
+  let total = 0;
+
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.length;
+    if (total > limitBytes) {
+      const error = new Error("Payload muito grande");
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(buffer);
+  }
+
+  return Buffer.concat(chunks, total);
+}
+
+function parseMultipartBuffer(raw, boundary) {
+  const boundaryBuffer = Buffer.from(`--${boundary}`);
+  const headerSeparator = Buffer.from("\r\n\r\n");
+  const fields = {};
+  const files = {};
+  let position = raw.indexOf(boundaryBuffer);
+
+  while (position !== -1) {
+    position += boundaryBuffer.length;
+    if (raw.slice(position, position + 2).toString("ascii") === "--") break;
+    if (raw[position] === 13 && raw[position + 1] === 10) position += 2;
+
+    const headerEnd = raw.indexOf(headerSeparator, position);
+    if (headerEnd === -1) break;
+
+    const headerText = raw.slice(position, headerEnd).toString("utf8");
+    const disposition = headerText.match(/content-disposition:\s*form-data;([^\r\n]+)/i)?.[1] || "";
+    const name = disposition.match(/name="([^"]+)"/i)?.[1] || "";
+    const fileName = disposition.match(/filename="([^"]*)"/i)?.[1] || "";
+    const contentType = headerText.match(/content-type:\s*([^\r\n]+)/i)?.[1]?.trim() || "";
+    const contentStart = headerEnd + headerSeparator.length;
+    const nextBoundary = raw.indexOf(boundaryBuffer, contentStart);
+    if (nextBoundary === -1) break;
+
+    let contentEnd = nextBoundary;
+    if (raw[contentEnd - 2] === 13 && raw[contentEnd - 1] === 10) {
+      contentEnd -= 2;
+    }
+    const content = raw.slice(contentStart, contentEnd);
+
+    if (name && fileName) {
+      files[name] = files[name] || [];
+      files[name].push({ fieldName: name, fileName, contentType, buffer: content });
+    } else if (name) {
+      fields[name] = content.toString("utf8");
+    }
+
+    position = nextBoundary;
+  }
+
+  return { fields, files };
 }
 
 function sendJson(response, status, payload, headers = {}) {

@@ -2,7 +2,7 @@ services:
   - type: web
     name: eletro-ativa-solicitacoes
     runtime: node
-    plan: starter
+    plan: standard
     buildCommand: npm install --omit=dev
     startCommand: node server.js
     healthCheckPath: /api/health
@@ -28,4 +28,4 @@ services:
     disk:
       name: solicitacoes-data
       mountPath: /opt/render/project/src/storage
-      sizeGB: 1
+      sizeGB: 10

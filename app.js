@@ -77,24 +77,16 @@ const priorityWeight = {
 };
 
 const stateRefreshIntervalMs = 30000;
-const maxAttachmentFiles = 5;
+const maxAttachmentFiles = 12;
 const maxPdfAttachmentBytes = 4 * 1024 * 1024;
 const maxImageDimension = 1600;
 const imageCompressionQuality = 0.84;
-const meetingTimeSlots = [
-  "06:00",
-  "07:00",
-  "08:00",
-  "09:00",
-  "10:00",
-  "11:00",
-  "13:00",
-  "14:00",
-  "15:00",
-  "16:00",
-  "17:00",
-  "18:00",
-];
+const meetingTimeSlots = ["11:00", "17:00", "18:00"];
+const meetingTimeLabels = {
+  "11:00": "11:00 às 12:00",
+  "17:00": "17:00 às 18:00",
+  "18:00": "18:00 às 19:00",
+};
 
 const toDateInputValue = (date) => {
   const year = date.getFullYear();
@@ -150,6 +142,7 @@ const elements = {
   adminOnly: document.querySelectorAll("[data-admin-only]"),
   requestsAdminView: document.querySelectorAll("[data-requests-admin-view]"),
   requestsViewButton: document.querySelector("#requests-view-button"),
+  materialListsButton: document.querySelector("#material-lists-button"),
   personalTasksButton: document.querySelector("#personal-tasks-button"),
   meetingsViewButton: document.querySelector("#meetings-view-button"),
   navItems: document.querySelectorAll(".nav-item"),
@@ -160,13 +153,17 @@ const elements = {
   priorityFilter: document.querySelector("#priority-filter"),
   openFormButton: document.querySelector("#open-form-button"),
   exportButton: document.querySelector("#export-button"),
+  backupButton: document.querySelector("#backup-button"),
+  changePasswordButton: document.querySelector("#change-password-button"),
   usersButton: document.querySelector("#users-button"),
   modal: document.querySelector("#request-modal"),
   form: document.querySelector("#request-form"),
+  requestModalTitle: document.querySelector("#request-modal-title"),
   closeFormButton: document.querySelector("#close-form-button"),
   cancelFormButton: document.querySelector("#cancel-form-button"),
   dueInput: document.querySelector("#due-input"),
   priorityInput: document.querySelector("#priority-input"),
+  adminRequestType: document.querySelector("#admin-request-type"),
   adminSlaHint: document.querySelector("#admin-sla-hint"),
   managerInput: document.querySelector("#manager-input"),
   departmentInput: document.querySelector("#department-input"),
@@ -204,6 +201,7 @@ const elements = {
   meetingReminder: document.querySelector("#meeting-reminder"),
   meetingAdminPanel: document.querySelector("#meeting-admin-panel"),
   meetingSlotForm: document.querySelector("#meeting-slot-form"),
+  meetingBlockPeriodForm: document.querySelector("#meeting-block-period-form"),
   meetingCalendar: document.querySelector("#meeting-calendar"),
   meetingList: document.querySelector("#meeting-list"),
   meetingEmptyState: document.querySelector("#meeting-empty-state"),
@@ -223,6 +221,7 @@ const elements = {
   detailContent: document.querySelector("#detail-content"),
   detailStatus: document.querySelector("#detail-status"),
   detailTitle: document.querySelector("#detail-title"),
+  detailManagerLabel: document.querySelector("#detail-manager-label"),
   detailManager: document.querySelector("#detail-manager"),
   detailDepartment: document.querySelector("#detail-department"),
   detailPriority: document.querySelector("#detail-priority"),
@@ -231,6 +230,7 @@ const elements = {
   detailAttachmentsSection: document.querySelector("#detail-attachments-section"),
   detailAttachments: document.querySelector("#detail-attachments"),
   responseInput: document.querySelector("#response-input"),
+  responseSectionTitle: document.querySelector("#response-section-title"),
   responseAttachmentsBlock: document.querySelector("#response-attachments-block"),
   responseAttachments: document.querySelector("#response-attachments"),
   responseAttachmentsInput: document.querySelector("#response-attachments-input"),
@@ -245,6 +245,10 @@ const elements = {
     today: document.querySelector("#metric-today"),
     overdue: document.querySelector("#metric-overdue"),
     done: document.querySelector("#metric-done"),
+    high: document.querySelector("#metric-high"),
+    attachments: document.querySelector("#metric-attachments"),
+    average: document.querySelector("#metric-average"),
+    meetings: document.querySelector("#metric-meetings"),
   },
   counts: {
     todas: document.querySelector("#count-todas"),
@@ -298,10 +302,11 @@ function applyState(payload) {
 }
 
 async function apiFetch(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
   const response = await fetch(path, {
     ...options,
     headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}),
       ...(options.headers || {}),
     },
   });
@@ -329,6 +334,13 @@ function jsonRequest(method, payload) {
   };
 }
 
+function formRequest(method, formData) {
+  return {
+    method,
+    body: formData,
+  };
+}
+
 function isAdmin() {
   return currentUser?.role === "admin";
 }
@@ -337,6 +349,10 @@ function formatDate(value = "") {
   if (!value.includes("-")) return "Não informado";
   const [year, month, day] = value.split("-");
   return `${day}/${month}/${year}`;
+}
+
+function formatMeetingTime(value = "") {
+  return meetingTimeLabels[value] || value || "--:--";
 }
 
 function formatDateTime(value = "") {
@@ -384,6 +400,28 @@ function isDueToday(request) {
   return request.status !== "resolvida" && request.dueDate === todayIso();
 }
 
+function syncMeetingAdminForms(date = meetingSelectedDate, forceDate = false) {
+  if (!isAdmin()) return;
+
+  const minDate = todayIso();
+  if (elements.meetingSlotForm) {
+    elements.meetingSlotForm.elements.date.min = minDate;
+    if (forceDate || !elements.meetingSlotForm.elements.date.value) {
+      elements.meetingSlotForm.elements.date.value = date;
+    }
+  }
+  if (elements.meetingBlockPeriodForm) {
+    elements.meetingBlockPeriodForm.elements.startDate.min = minDate;
+    elements.meetingBlockPeriodForm.elements.endDate.min = minDate;
+    if (!elements.meetingBlockPeriodForm.elements.startDate.value) {
+      elements.meetingBlockPeriodForm.elements.startDate.value = date;
+    }
+    if (!elements.meetingBlockPeriodForm.elements.endDate.value) {
+      elements.meetingBlockPeriodForm.elements.endDate.value = date;
+    }
+  }
+}
+
 function normalizeText(value) {
   return value
     .toLowerCase()
@@ -416,7 +454,7 @@ function formatPhone(value = "") {
 function filteredRequests() {
   const term = normalizeText(searchTerm.trim());
 
-  return requests
+  return scopedRequests()
     .filter((request) => currentStatus === "todas" || request.status === currentStatus)
     .filter((request) => priorityFilter === "todas" || request.priority === priorityFilter)
     .filter((request) => {
@@ -426,6 +464,18 @@ function filteredRequests() {
       ).includes(term);
     })
     .sort(compareRequestsByPriorityAndPost);
+}
+
+function scopedRequests() {
+  if (isAdmin() && adminView === "material") {
+    return requests.filter((request) => request.type === "material_list");
+  }
+
+  if (isAdmin()) {
+    return requests.filter((request) => request.type !== "material_list");
+  }
+
+  return requests;
 }
 
 function compareRequestsByPriorityAndPost(a, b) {
@@ -483,10 +533,30 @@ function applyManagerRequestDeadline() {
   );
 }
 
+function applyAdminRequestDeadline() {
+  const isMaterialList = elements.adminRequestType?.value === "material_list";
+  const titleInput = elements.form.elements.title;
+  elements.requestModalTitle.textContent = isMaterialList ? "Nova lista de material" : "Nova solicitação";
+  titleInput.placeholder = isMaterialList ? "Solicitação Lista de Material" : "Resumo da solicitação";
+  if (isMaterialList && !titleInput.value.trim()) {
+    titleInput.value = "Solicitação Lista de Material";
+  } else if (!isMaterialList && titleInput.value.trim() === "Solicitação Lista de Material") {
+    titleInput.value = "";
+  }
+  renderAssigneeOptions();
+  applyResponseDeadline(
+    elements.form,
+    elements.adminSlaHint,
+    isMaterialList ? materialListDeadlineDays : adminTaskDeadlineDays,
+    isMaterialList ? materialListDeadlineLabels : adminTaskDeadlineLabels,
+  );
+}
+
 function renderAdminView() {
   if (!isAdmin()) return;
 
-  const showingRequests = adminView === "requests";
+  const showingRequests = adminView === "requests" || adminView === "material";
+  const showingMaterialLists = adminView === "material";
   const showingPersonalTasks = adminView === "personal";
   const showingMeetings = adminView === "meetings";
   elements.requestsAdminView.forEach((element) => {
@@ -496,7 +566,8 @@ function renderAdminView() {
   elements.managerHistoryPanel.classList.add("hidden");
   elements.personalTasksPanel.classList.toggle("hidden", !showingPersonalTasks);
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
-  elements.requestsViewButton.classList.toggle("active-view-button", showingRequests);
+  elements.requestsViewButton.classList.toggle("active-view-button", adminView === "requests");
+  elements.materialListsButton.classList.toggle("active-view-button", showingMaterialLists);
   elements.personalTasksButton.classList.toggle("active-view-button", showingPersonalTasks);
   elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
 
@@ -514,8 +585,11 @@ function renderAdminView() {
     return;
   }
 
-  elements.appEyebrow.textContent = "Painel das lojas";
-  elements.appTitle.textContent = "Solicitações das lojas";
+  elements.appEyebrow.textContent = showingMaterialLists ? "Acompanhamento técnico" : "Painel das lojas";
+  elements.appTitle.textContent = showingMaterialLists ? "Listas de material" : "Solicitações das lojas";
+  elements.openFormButton.innerHTML = showingMaterialLists
+    ? '<span aria-hidden="true">+</span> Nova lista'
+    : '<span aria-hidden="true">+</span> Nova solicitação';
   render();
 }
 
@@ -645,7 +719,7 @@ function renderManagerDashboard() {
               <label class="file-field">
                 Anexos da resposta
                 <input name="responseAttachments" type="file" accept="image/*,application/pdf" multiple />
-                <span class="input-hint">Até 5 arquivos. Use imagens ou PDFs.</span>
+                <span class="input-hint">Até 12 arquivos. Use imagens ou PDFs.</span>
               </label>
               <div class="manager-card-actions">
                 <button class="primary-button compact-button" type="submit">Enviar resposta</button>
@@ -784,6 +858,10 @@ function isPersonalTaskOverdue(task) {
 }
 
 function renderMeetings() {
+  if (!isAdmin() && meetingTab === "agendar") {
+    meetingTab = "calendario";
+  }
+
   const bookedMeetings = meetings.filter((meeting) => meeting.status === "booked");
   const availableMeetings = meetings.filter((meeting) => meeting.status === "available");
   const visibleMeetings = filteredMeetings();
@@ -801,15 +879,17 @@ function renderMeetings() {
   elements.meetingCountCalendar.textContent = meetings.length;
   elements.meetingAdminPanel.classList.toggle("hidden", !isAdmin());
   elements.meetingCalendar.classList.toggle("hidden", !showingCalendar);
+  syncMeetingAdminForms();
 
   elements.meetingTabs.forEach((button) => {
+    button.classList.toggle("hidden", !isAdmin() && button.dataset.meetingTab === "agendar");
     button.classList.toggle("active", button.dataset.meetingTab === meetingTab);
   });
 
   if (showingCalendar) {
     renderMeetingCalendar();
     if (isAdmin()) {
-      elements.meetingSlotForm.elements.date.value = meetingSelectedDate;
+      syncMeetingAdminForms(meetingSelectedDate, true);
     }
   } else {
     elements.meetingCalendar.innerHTML = "";
@@ -842,7 +922,7 @@ function renderMeetings() {
     card.innerHTML = `
       <div class="request-title-row">
         <div>
-          <strong>${formatDate(meeting.date)} às ${escapeHtml(meeting.time || "--:--")}</strong>
+          <strong>${formatDate(meeting.date)} · ${escapeHtml(formatMeetingTime(meeting.time))}</strong>
           <span class="manager-request-date">${meetingSubtitle(meeting)}</span>
         </div>
         <span class="status-pill ${meetingStatusClasses[meeting.status] || "status-andamento"}">
@@ -879,7 +959,7 @@ function meetingTitle() {
     reunioes: "Reuniões",
     agendadas: "Agendadas",
     agendar: "Agendar",
-    calendario: "Calendário Alcir",
+    calendario: "Calendário Alcir - Agendar",
   };
   return titles[meetingTab] || titles.reunioes;
 }
@@ -991,7 +1071,7 @@ function meetingTimeSlotMarkup(time, meeting) {
   if (!meeting) {
     return `
       <article class="meeting-time-slot unavailable">
-        <strong>${time}</strong>
+        <strong>${escapeHtml(formatMeetingTime(time))}</strong>
         <span>Fechado</span>
         ${
           isAdmin()
@@ -1007,7 +1087,7 @@ function meetingTimeSlotMarkup(time, meeting) {
 
   return `
     <article class="meeting-time-slot meeting-${meeting.status}">
-      <strong>${time}</strong>
+      <strong>${escapeHtml(formatMeetingTime(time))}</strong>
       <span>${escapeHtml(statusLabel)}</span>
       ${bookedLabel ? `<small>${escapeHtml(bookedLabel)}</small>` : ""}
       ${meetingSlotActionMarkup(meeting)}
@@ -1027,6 +1107,7 @@ function meetingSlotActionMarkup(meeting) {
   }
 
   if (meeting.status !== "available") return "";
+  if (meetingTab !== "calendario") return "";
 
   return `
     <form class="meeting-book-form compact-meeting-book-form" data-book-meeting-form="${escapeHtml(meeting.id)}">
@@ -1103,7 +1184,7 @@ function renderMeetingReminder(upcomingMeeting) {
   elements.meetingReminder.classList.remove("hidden");
   elements.meetingReminder.innerHTML = `
     <strong>Lembrete de reunião</strong>
-    <span>Você tem reunião com Alcir em ${formatDate(upcomingMeeting.date)} às ${escapeHtml(upcomingMeeting.time)}.</span>
+    <span>Você tem reunião com Alcir em ${formatDate(upcomingMeeting.date)} · ${escapeHtml(formatMeetingTime(upcomingMeeting.time))}.</span>
     <span>${escapeHtml(upcomingMeeting.topic || "Tema não informado")}</span>
   `;
 }
@@ -1121,29 +1202,53 @@ function meetingDate(meeting) {
 }
 
 function renderCounts() {
-  elements.counts.todas.textContent = requests.length;
-  elements.counts.nova.textContent = requests.filter((item) => item.status === "nova").length;
-  elements.counts.andamento.textContent = requests.filter(
+  const scope = scopedRequests();
+  elements.counts.todas.textContent = scope.length;
+  elements.counts.nova.textContent = scope.filter((item) => item.status === "nova").length;
+  elements.counts.andamento.textContent = scope.filter(
     (item) => item.status === "andamento",
   ).length;
-  elements.counts.resolvida.textContent = requests.filter(
+  elements.counts.resolvida.textContent = scope.filter(
     (item) => item.status === "resolvida",
   ).length;
 }
 
 function renderMetrics() {
-  elements.metrics.open.textContent = requests.filter(
-    (request) => request.status !== "resolvida",
-  ).length;
-  elements.metrics.today.textContent = requests.filter(isDueToday).length;
-  elements.metrics.overdue.textContent = requests.filter(isOverdue).length;
-  elements.metrics.done.textContent = requests.filter(
-    (request) => request.status === "resolvida",
-  ).length;
+  const scope = scopedRequests();
+  const openRequests = scope.filter((request) => request.status !== "resolvida");
+  const resolvedRequests = scope.filter((request) => request.status === "resolvida");
+  const requestsWithAttachments = scope.filter(
+    (request) =>
+      (Array.isArray(request.attachments) && request.attachments.length > 0) ||
+      (Array.isArray(request.responseAttachments) && request.responseAttachments.length > 0),
+  );
+  const averageResolutionDays = resolvedRequests.length
+    ? Math.round(
+        resolvedRequests.reduce((total, request) => total + requestResolutionDays(request), 0) /
+          resolvedRequests.length,
+      )
+    : 0;
+
+  elements.metrics.open.textContent = openRequests.length;
+  elements.metrics.today.textContent = scope.filter(isDueToday).length;
+  elements.metrics.overdue.textContent = scope.filter(isOverdue).length;
+  elements.metrics.done.textContent = resolvedRequests.length;
+  elements.metrics.high.textContent = openRequests.filter((request) => request.priority === "alta").length;
+  elements.metrics.attachments.textContent = requestsWithAttachments.length;
+  elements.metrics.average.textContent = `${averageResolutionDays}d`;
+  elements.metrics.meetings.textContent = meetings.filter((meeting) => meeting.status === "booked").length;
+}
+
+function requestResolutionDays(request) {
+  const started = new Date(request.createdAt || request.updatedAt || 0);
+  const finished = new Date(request.updatedAt || request.createdAt || 0);
+  if (Number.isNaN(started.getTime()) || Number.isNaN(finished.getTime())) return 0;
+  return Math.max(0, Math.ceil((finished - started) / (24 * 60 * 60 * 1000)));
 }
 
 function renderList() {
   const visibleRequests = filteredRequests();
+  const showingMaterialLists = isAdmin() && adminView === "material";
   if (!visibleRequests.some((request) => request.id === selectedId)) {
     selectedId = visibleRequests[0]?.id ?? null;
   }
@@ -1154,6 +1259,12 @@ function renderList() {
   }`;
 
   elements.emptyState.classList.toggle("hidden", visibleRequests.length > 0);
+  elements.emptyState.querySelector("strong").textContent = showingMaterialLists
+    ? "Nenhuma lista de material encontrada"
+    : "Nenhuma solicitação encontrada";
+  elements.emptyState.querySelector("span").textContent = showingMaterialLists
+    ? "Quando uma lista de material for criada, ela aparece aqui para acompanhamento."
+    : "Ajuste os filtros ou registre uma nova demanda.";
 
   visibleRequests.forEach((request) => {
     const button = document.createElement("button");
@@ -1197,6 +1308,7 @@ function renderList() {
 
 function renderDetail() {
   const request = requests.find((item) => item.id === selectedId);
+  const isMaterialList = request?.type === "material_list";
 
   elements.detailPlaceholder.classList.toggle("hidden", Boolean(request));
   elements.detailContent.classList.toggle("hidden", !request);
@@ -1211,6 +1323,7 @@ function renderDetail() {
   elements.detailStatus.textContent = statusLabels[request.status];
   elements.detailStatus.className = `status-pill status-${request.status}`;
   elements.detailTitle.textContent = request.title;
+  elements.detailManagerLabel.textContent = isMaterialList ? "Responsável" : "Gerente";
   elements.detailManager.textContent = request.manager;
   elements.detailDepartment.textContent = request.department;
   elements.detailPriority.textContent = priorityLabels[request.priority];
@@ -1224,6 +1337,7 @@ function renderDetail() {
     !Array.isArray(request.attachments) || request.attachments.length === 0,
   );
   renderAttachmentGrid(elements.responseAttachments, request.responseAttachments);
+  elements.responseSectionTitle.textContent = isMaterialList ? "Resposta do engenheiro" : "Resposta ao gerente";
   elements.responseAttachmentsBlock.classList.toggle(
     "has-attachments",
     Array.isArray(request.responseAttachments) && request.responseAttachments.length > 0,
@@ -1296,15 +1410,16 @@ function renderUsers() {
 function renderAssigneeOptions() {
   if (!elements.assigneeInput) return;
 
-  const managers = users.filter((user) => user.role === "manager");
-  elements.assigneeInput.innerHTML = managers.length
-    ? managers
+  const isMaterialList = elements.adminRequestType?.value === "material_list";
+  const candidates = users.filter((user) => user.role === (isMaterialList ? "engineer" : "manager"));
+  elements.assigneeInput.innerHTML = candidates.length
+    ? candidates
         .map(
           (user) =>
             `<option value="${escapeHtml(user.id)}" data-name="${escapeHtml(user.name)}" data-department="${escapeHtml(user.department)}">${escapeHtml(user.name)} · ${escapeHtml(unitLabel(user.unit))}</option>`,
         )
         .join("")
-    : '<option value="">Cadastre um gerente primeiro</option>';
+    : `<option value="">Cadastre um ${isMaterialList ? "engenheiro" : "gerente"} primeiro</option>`;
 
   syncAdminAssigneeFields();
 }
@@ -1458,6 +1573,19 @@ async function attachmentsFromForm(formData, fieldName = "attachments") {
   return Promise.all(files.map(fileToAttachment));
 }
 
+async function appendAttachmentsToPayload(payload, files, fieldName = "attachments") {
+  const cleanFiles = files.filter((file) => file instanceof File && file.size > 0);
+
+  if (cleanFiles.length > maxAttachmentFiles) {
+    throw new Error(`Envie no máximo ${maxAttachmentFiles} anexos por vez.`);
+  }
+
+  for (const file of cleanFiles) {
+    const prepared = await prepareFileForUpload(file);
+    payload.append(fieldName, prepared.blob, prepared.name);
+  }
+}
+
 async function attachmentsFromInput(input) {
   const files = Array.from(input?.files || []);
 
@@ -1466,6 +1594,28 @@ async function attachmentsFromInput(input) {
   }
 
   return Promise.all(files.map(fileToAttachment));
+}
+
+async function prepareFileForUpload(file) {
+  const fileName = file.name || "";
+  const isPdfFile = file.type === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
+
+  if (isPdfFile) {
+    if (file.size > maxPdfAttachmentBytes) {
+      throw new Error("PDF muito grande. Envie arquivos de até 4 MB.");
+    }
+    return { blob: file, name: fileName || "documento.pdf" };
+  }
+
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Anexe apenas imagens ou PDFs.");
+  }
+
+  const compressed = await compressImage(file);
+  return {
+    blob: dataUrlToBlob(compressed.dataUrl),
+    name: file.name || "imagem.jpg",
+  };
 }
 
 async function fileToAttachment(file) {
@@ -1554,6 +1704,17 @@ function blobToDataUrl(blob) {
   });
 }
 
+function dataUrlToBlob(dataUrl) {
+  const [metadata, encoded] = String(dataUrl).split(",");
+  const mimeType = metadata.match(/^data:([^;]+);base64$/)?.[1] || "application/octet-stream";
+  const binary = atob(encoded || "");
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: mimeType });
+}
+
 function createClientId(prefix) {
   if (window.crypto?.randomUUID) {
     return `${prefix}-${window.crypto.randomUUID()}`;
@@ -1561,22 +1722,33 @@ function createClientId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+async function requestFormPayload(source) {
+  const payload = new FormData();
+  payload.set("requestType", source.get("requestType") || (isAdmin() ? "admin_task" : "manager_request"));
+  payload.set("assigneeId", source.get("assigneeId") || "");
+  payload.set("manager", source.get("manager")?.trim() ?? "");
+  payload.set("department", source.get("department")?.trim() ?? "");
+  payload.set("title", source.get("title").trim());
+  payload.set("description", source.get("description").trim());
+  payload.set("priority", source.get("priority"));
+  await appendAttachmentsToPayload(payload, source.getAll("attachments"), "attachments");
+  return payload;
+}
+
+async function responseFormPayload(response, files) {
+  const payload = new FormData();
+  payload.set("status", "resolvida");
+  payload.set("response", response);
+  await appendAttachmentsToPayload(payload, files, "responseAttachments");
+  return payload;
+}
+
 async function addRequest(formData) {
   try {
-    const attachments = await attachmentsFromForm(formData);
-    const payload = {
-      requestType: formData.get("requestType") || (isAdmin() ? "admin_task" : "manager_request"),
-      assigneeId: formData.get("assigneeId") || "",
-      manager: formData.get("manager")?.trim() ?? "",
-      department: formData.get("department")?.trim() ?? "",
-      title: formData.get("title").trim(),
-      description: formData.get("description").trim(),
-      priority: formData.get("priority"),
-      attachments,
-    };
+    const payload = await requestFormPayload(formData);
 
     showToast("Salvando solicitação no servidor...");
-    const result = await apiFetch("/api/requests", jsonRequest("POST", payload));
+    const result = await apiFetch("/api/requests", formRequest("POST", payload));
     requests = result.requests;
     selectedId = isAdmin() ? result.request.id : selectedId;
     renderCurrentView();
@@ -1736,6 +1908,46 @@ async function updateMeetingDay(date, status) {
   }
 }
 
+async function blockMeetingPeriod(formData) {
+  if (!isAdmin()) return false;
+
+  const startDate = formData.get("startDate");
+  const endDate = formData.get("endDate");
+  const adminNote = formData.get("adminNote")?.trim() || "Período bloqueado";
+
+  if (endDate < startDate) {
+    showToast("A data final precisa ser depois da data inicial.");
+    return false;
+  }
+
+  const confirmed = window.confirm(`Bloquear reuniões de ${formatDate(startDate)} até ${formatDate(endDate)}?`);
+  if (!confirmed) return false;
+
+  try {
+    const result = await apiFetch(
+      "/api/meetings/block-period",
+      jsonRequest("POST", {
+        startDate,
+        endDate,
+        adminNote,
+      }),
+    );
+    meetings = result.meetings;
+    meetingSelectedDate = startDate;
+    const [year, month] = meetingSelectedDate.split("-").map(Number);
+    meetingCalendarDate = new Date(year, month - 1, 1);
+    elements.meetingBlockPeriodForm.reset();
+    syncMeetingAdminForms(startDate, true);
+    renderAdminView();
+    const keptText = result.bookedCount > 0 ? ` ${result.bookedCount} já agendada(s) foram mantidas.` : "";
+    showToast(`Período bloqueado.${keptText}`);
+    return true;
+  } catch (error) {
+    showToast(error.message);
+    return false;
+  }
+}
+
 async function openMeetingDay(date) {
   const selectedMeetings = meetings.filter((meeting) => meeting.date === date);
   const meetingsByTime = new Map(selectedMeetings.map((meeting) => [meeting.time, meeting]));
@@ -1779,7 +1991,7 @@ async function deleteMeeting(meetingId) {
   const meeting = meetings.find((item) => item.id === meetingId);
   if (!meeting) return;
 
-  const confirmed = window.confirm(`Excluir o horário de ${formatDate(meeting.date)} às ${meeting.time}?`);
+  const confirmed = window.confirm(`Excluir o horário de ${formatDate(meeting.date)} · ${formatMeetingTime(meeting.time)}?`);
   if (!confirmed) return;
 
   try {
@@ -1856,20 +2068,14 @@ async function resolveSelected() {
   }
 
   try {
-    const responseAttachments = await attachmentsFromInput(elements.responseAttachmentsInput);
-
-    const updated = await updateSelected(
-      {
-        status: "resolvida",
-        response,
-        responseAttachments,
-      },
-      "Resposta salva.",
-    );
-    if (updated) {
-      elements.responseInput.value = updated.response || "";
-      elements.responseAttachmentsInput.value = "";
-    }
+    const payload = await responseFormPayload(response, Array.from(elements.responseAttachmentsInput.files || []));
+    const result = await apiFetch(`/api/requests/${encodeURIComponent(selectedId)}`, formRequest("PATCH", payload));
+    requests = result.requests;
+    selectedId = result.request.id;
+    render();
+    showNotificationResult(result.notification, "Resposta salva.");
+    elements.responseInput.value = result.request.response || "";
+    elements.responseAttachmentsInput.value = "";
   } catch (error) {
     showToast(error.message);
   }
@@ -1886,14 +2092,10 @@ async function submitAssignedResponse(form) {
   }
 
   try {
-    const responseAttachments = await attachmentsFromInput(form.elements.responseAttachments);
+    const payload = await responseFormPayload(response, Array.from(form.elements.responseAttachments.files || []));
     const result = await apiFetch(
       `/api/requests/${encodeURIComponent(requestId)}`,
-      jsonRequest("PATCH", {
-        status: "resolvida",
-        response,
-        responseAttachments,
-      }),
+      formRequest("PATCH", payload),
     );
     applyState(result);
     renderManagerView();
@@ -1941,7 +2143,7 @@ function exportCsv() {
     "Resposta",
   ];
 
-  const rows = requests.map((request) => [
+  const rows = filteredRequests().map((request) => [
     request.title,
     request.manager,
     request.department,
@@ -1963,6 +2165,51 @@ function exportCsv() {
   link.click();
   URL.revokeObjectURL(url);
   showToast("CSV exportado.");
+}
+
+async function createBackupDownload() {
+  if (!isAdmin()) return;
+
+  try {
+    showToast("Gerando backup...");
+    const result = await apiFetch("/api/backups", jsonRequest("POST", {}));
+    const link = document.createElement("a");
+    link.href = result.downloadUrl;
+    link.download = result.backup?.fileName || `backup-${todayIso()}.tar.gz`;
+    link.click();
+    showToast("Backup gerado.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function changeOwnPassword() {
+  const currentPassword = window.prompt("Senha atual");
+  if (currentPassword === null) return;
+
+  const newPassword = window.prompt("Nova senha com pelo menos 8 caracteres, letras e números");
+  if (newPassword === null) return;
+
+  const confirmation = window.prompt("Confirme a nova senha");
+  if (confirmation === null) return;
+
+  if (newPassword !== confirmation) {
+    showToast("As senhas não conferem.");
+    return;
+  }
+
+  try {
+    await apiFetch(
+      "/api/change-password",
+      jsonRequest("POST", {
+        currentPassword,
+        newPassword,
+      }),
+    );
+    showToast("Senha alterada.");
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 function printSelectedRequest() {
@@ -2406,8 +2653,10 @@ function openForm() {
   if (!isAdmin()) return;
 
   elements.form.reset();
+  elements.adminRequestType.value = adminView === "material" ? "material_list" : "admin_task";
+  elements.requestModalTitle.textContent = adminView === "material" ? "Nova lista de material" : "Nova solicitação";
   renderAssigneeOptions();
-  applyResponseDeadline(elements.form, elements.adminSlaHint, adminTaskDeadlineDays, adminTaskDeadlineLabels);
+  applyAdminRequestDeadline();
   elements.modal.showModal();
   elements.assigneeInput.focus();
 }
@@ -2435,6 +2684,7 @@ function resetUserFormMode() {
   elements.userForm.dataset.editingUserId = "";
   elements.userForm.elements.password.required = true;
   elements.userForm.elements.password.placeholder = "";
+  elements.userForm.elements.password.minLength = 8;
   elements.userPasswordLabel.firstChild.textContent = "Senha";
   elements.userForm.elements.role.value = "manager";
   elements.userModalTitle.textContent = "Usuários das lojas";
@@ -2487,6 +2737,12 @@ async function saveManagerUser(formData) {
     password: formData.get("password"),
     role: formData.get("role"),
   };
+
+  if (payload.password && payload.password.length < 8) {
+    showToast("A senha precisa ter pelo menos 8 caracteres.");
+    elements.userForm.elements.password.focus();
+    return;
+  }
 
   try {
     const result = editingUserId
@@ -2634,6 +2890,11 @@ function bindEvents() {
     renderManagerView();
   });
 
+  elements.materialListsButton.addEventListener("click", () => {
+    adminView = "material";
+    renderAdminView();
+  });
+
   elements.personalTasksButton.addEventListener("click", () => {
     adminView = "personal";
     elements.personalTaskForm.elements.dueDate.min = todayIso();
@@ -2647,10 +2908,7 @@ function bindEvents() {
   elements.meetingsViewButton.addEventListener("click", () => {
     if (isAdmin()) {
       adminView = "meetings";
-      elements.meetingSlotForm.elements.date.min = todayIso();
-      if (!elements.meetingSlotForm.elements.date.value) {
-        elements.meetingSlotForm.elements.date.value = todayIso();
-      }
+      syncMeetingAdminForms(todayIso(), true);
       renderAdminView();
       return;
     }
@@ -2659,9 +2917,10 @@ function bindEvents() {
   });
 
   elements.priorityInput.addEventListener("change", () => {
-    applyResponseDeadline(elements.form, elements.adminSlaHint, adminTaskDeadlineDays, adminTaskDeadlineLabels);
+    applyAdminRequestDeadline();
   });
 
+  elements.adminRequestType.addEventListener("change", applyAdminRequestDeadline);
   elements.managerForm.elements.priority.addEventListener("change", () => {
     applyManagerRequestDeadline();
   });
@@ -2701,6 +2960,8 @@ function bindEvents() {
   elements.closeFormButton.addEventListener("click", closeForm);
   elements.cancelFormButton.addEventListener("click", closeForm);
   elements.exportButton.addEventListener("click", exportCsv);
+  elements.backupButton.addEventListener("click", createBackupDownload);
+  elements.changePasswordButton.addEventListener("click", changeOwnPassword);
   elements.usersButton.addEventListener("click", openUserModal);
   elements.closeUserButton.addEventListener("click", closeUserModal);
   elements.cancelUserButton.addEventListener("click", closeUserModal);
@@ -2751,6 +3012,11 @@ function bindEvents() {
   elements.meetingSlotForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await createMeetingSlot(new FormData(elements.meetingSlotForm));
+  });
+
+  elements.meetingBlockPeriodForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await blockMeetingPeriod(new FormData(elements.meetingBlockPeriodForm));
   });
 
   elements.meetingList.addEventListener("submit", (event) => {

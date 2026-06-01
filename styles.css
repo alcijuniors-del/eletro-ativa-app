@@ -555,7 +555,7 @@ h3 {
 }
 
 .metric {
-  min-height: 100px;
+  min-height: 92px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background:
@@ -585,6 +585,22 @@ h3 {
 }
 
 .metric:nth-child(4) {
+  border-top-color: rgba(54, 226, 154, 0.58);
+}
+
+.metric:nth-child(5) {
+  border-top-color: rgba(255, 90, 95, 0.58);
+}
+
+.metric:nth-child(6) {
+  border-top-color: rgba(195, 108, 255, 0.58);
+}
+
+.metric:nth-child(7) {
+  border-top-color: rgba(94, 199, 255, 0.58);
+}
+
+.metric:nth-child(8) {
   border-top-color: rgba(54, 226, 154, 0.58);
 }
 
@@ -894,6 +910,26 @@ textarea:focus {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.045);
   padding: 14px;
+}
+
+.meeting-admin-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.meeting-admin-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.meeting-admin-panel .request-form {
+  padding: 0;
+}
+
+.meeting-form-title {
+  color: #fff;
+  font-size: 0.95rem;
 }
 
 .meeting-list {
@@ -1698,6 +1734,7 @@ textarea:focus {
   .form-grid,
   .personal-task-tabs,
   .meeting-tabs,
+  .meeting-admin-layout,
   .calendar-selected-day {
     grid-template-columns: 1fr;
   }
