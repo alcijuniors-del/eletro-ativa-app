@@ -158,6 +158,7 @@ const elements = {
   loginError: document.querySelector("#login-error"),
   currentUserName: document.querySelector("#current-user-name"),
   currentUserRole: document.querySelector("#current-user-role"),
+  sellerGoalPill: document.querySelector("#seller-goal-pill"),
   logoutButton: document.querySelector("#logout-button"),
   appTitle: document.querySelector("#app-title"),
   appEyebrow: document.querySelector("#app-eyebrow"),
@@ -251,11 +252,15 @@ const elements = {
   crmTabs: document.querySelectorAll("[data-crm-filter]"),
   crmList: document.querySelector("#crm-list"),
   crmEmptyState: document.querySelector("#crm-empty-state"),
+  crmMetricTotal: document.querySelector("#crm-metric-total"),
   crmMetricOpen: document.querySelector("#crm-metric-open"),
   crmMetricNegotiation: document.querySelector("#crm-metric-negotiation"),
   crmMetricWon: document.querySelector("#crm-metric-won"),
   crmMetricAmountCard: document.querySelector("#crm-metric-amount-card"),
   crmMetricAmount: document.querySelector("#crm-metric-amount"),
+  crmMetricConversion: document.querySelector("#crm-metric-conversion"),
+  sellerRanking: document.querySelector("#seller-ranking"),
+  sellerRankingList: document.querySelector("#seller-ranking-list"),
   emailModeStatus: document.querySelector("#email-mode-status"),
   emailModeText: document.querySelector("#email-mode-text"),
   emailModeUrl: document.querySelector("#email-mode-url"),
@@ -566,6 +571,8 @@ function renderAuth() {
   elements.currentUserName.textContent = currentUser.name;
   elements.currentUserRole.textContent = roleLabels[currentUser.role];
   elements.currentUserRole.className = `role-pill role-${currentUser.role}`;
+  elements.sellerGoalPill.classList.toggle("hidden", currentUser.role !== "seller");
+  elements.sellerGoalPill.textContent = `Meta: ${formatCurrency(currentUser.sellerGoal || 0)}`;
   elements.adminOnly.forEach((element) => element.classList.toggle("hidden", !userIsAdmin));
 
   if (userIsAdmin) {
@@ -855,13 +862,16 @@ function renderCrm() {
   const openOpportunities = scopedOpportunities.filter((item) => !["fechado", "perdido"].includes(item.status));
   const negotiationOpportunities = scopedOpportunities.filter((item) => item.status === "negociacao");
   const wonOpportunities = scopedOpportunities.filter((item) => item.status === "fechado");
+  const performance = sellerPerformanceFromOpportunities(scopedOpportunities);
   const openAmount = openOpportunities.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const visibleOpportunities = filteredCrmOpportunities();
 
+  elements.crmMetricTotal.textContent = performance.total;
   elements.crmMetricOpen.textContent = openOpportunities.length;
   elements.crmMetricNegotiation.textContent = negotiationOpportunities.length;
   elements.crmMetricWon.textContent = wonOpportunities.length;
   elements.crmMetricAmount.textContent = formatCurrency(openAmount);
+  elements.crmMetricConversion.textContent = `${performance.conversion}% · ${performance.rating}`;
   elements.crmCountAll.textContent = scopedOpportunities.length;
   elements.crmCountNew.textContent = scopedOpportunities.filter((item) => item.status === "novo").length;
   elements.crmCountService.textContent = scopedOpportunities.filter((item) => item.status === "atendimento").length;
@@ -873,6 +883,8 @@ function renderCrm() {
   elements.emailModeStatus.classList.toggle("hidden", !isAdmin());
   elements.crmExportButton.classList.toggle("hidden", !isAdmin());
   elements.crmAdminFilters.classList.toggle("hidden", !isAdmin());
+  elements.sellerRanking.classList.toggle("hidden", !isAdmin());
+  renderSellerRanking();
 
   elements.crmTabs.forEach((button) => {
     button.classList.toggle("active", button.dataset.crmFilter === crmFilter);
@@ -940,6 +952,72 @@ function renderCrm() {
 
     elements.crmList.append(card);
   });
+}
+
+function sellerPerformanceFromOpportunities(items) {
+  const total = items.length;
+  const closed = items.filter((item) => item.status === "fechado").length;
+  const open = items.filter((item) => !["fechado", "perdido"].includes(item.status)).length;
+  const lost = items.filter((item) => item.status === "perdido").length;
+  const conversion = total > 0 ? Math.round((closed / total) * 100) : 0;
+  return {
+    total,
+    closed,
+    open,
+    lost,
+    conversion,
+    rating: conversionRating(conversion),
+  };
+}
+
+function conversionRating(conversion) {
+  if (conversion <= 30) return "Fraco";
+  if (conversion <= 50) return "Médio";
+  if (conversion < 70) return "Bom";
+  return "Excelente";
+}
+
+function renderSellerRanking() {
+  if (!isAdmin() || !elements.sellerRankingList) return;
+  const sellers = users.filter((user) => user.role === "seller");
+  const ranking = sellers
+    .map((seller) => {
+      const opportunities = crmOpportunities.filter((item) => item.ownerId === seller.id);
+      const performance = sellerPerformanceFromOpportunities(opportunities);
+      const amountWon = opportunities
+        .filter((item) => item.status === "fechado")
+        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+      return {
+        seller,
+        opportunities,
+        performance,
+        amountWon,
+      };
+    })
+    .sort((left, right) => {
+      const conversionDiff = right.performance.conversion - left.performance.conversion;
+      if (conversionDiff !== 0) return conversionDiff;
+      const closedDiff = right.performance.closed - left.performance.closed;
+      if (closedDiff !== 0) return closedDiff;
+      return right.amountWon - left.amountWon;
+    });
+
+  elements.sellerRankingList.innerHTML = ranking.length
+    ? ranking.map((item, index) => sellerRankingItemMarkup(item, index)).join("")
+    : `<div class="empty-state"><strong>Nenhum vendedor cadastrado</strong><span>Crie usuários com perfil Vendedor para gerar o ranking.</span></div>`;
+}
+
+function sellerRankingItemMarkup(item, index) {
+  return `<article class="seller-ranking-item">
+    <strong>${index + 1}. ${escapeHtml(item.seller.name)}</strong>
+    <span>${unitLabel(item.seller.unit)} · Meta ${formatCurrency(item.seller.sellerGoal || 0)}</span>
+    <div class="seller-ranking-metrics">
+      <span>${item.performance.total} orçamentos</span>
+      <span>${item.performance.open} abertos</span>
+      <span>${item.performance.closed} fechados</span>
+      <span>${item.performance.conversion}% · ${escapeHtml(item.performance.rating)}</span>
+    </div>
+  </article>`;
 }
 
 function crmFollowUpFormMarkup(opportunity) {
@@ -1901,7 +1979,7 @@ function renderUsers() {
     row.innerHTML = `
       <div>
         <strong>${escapeHtml(user.name)}</strong>
-        <span>${escapeHtml(user.username)} · Unidade ${escapeHtml(unit)} · ${escapeHtml(user.department)} · ${escapeHtml(formatPhone(user.phone))} · ${roleLabels[user.role]}</span>
+        <span>${escapeHtml(user.username)} · Unidade ${escapeHtml(unit)} · ${escapeHtml(user.department)} · ${escapeHtml(formatPhone(user.phone))} · ${roleLabels[user.role]}${user.role === "seller" ? ` · Meta ${formatCurrency(user.sellerGoal || 0)}` : ""}</span>
       </div>
       <div class="user-row-actions">
         <button class="ghost-button compact-button" type="button" data-edit-user="${escapeHtml(user.id)}" ${
@@ -2459,7 +2537,7 @@ async function createCrmOpportunity(formData) {
 }
 
 async function updateCrmOpportunityStatus(opportunityId, status) {
-  if (!isAdmin()) return;
+  if (!isAdmin() && currentUser?.role !== "seller") return;
 
   try {
     const result = await apiFetch(
@@ -3526,6 +3604,7 @@ function editUser(userId) {
   elements.userForm.elements.unit.value = unitLabel(user.unit);
   elements.userForm.elements.username.value = user.username;
   elements.userForm.elements.phone.value = user.phone || "";
+  elements.userForm.elements.sellerGoal.value = user.sellerGoal ? String(user.sellerGoal).replace(".", ",") : "";
   elements.userForm.elements.role.value = ["engineer", "seller"].includes(user.role) ? user.role : "manager";
   elements.userForm.elements.password.value = "";
   elements.userForm.elements.password.required = false;
@@ -3559,6 +3638,7 @@ async function saveManagerUser(formData) {
     phone: formData.get("phone"),
     password: formData.get("password"),
     role: formData.get("role"),
+    sellerGoal: formData.get("sellerGoal"),
   };
 
   if (payload.password && payload.password.length < 8) {

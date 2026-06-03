@@ -1209,6 +1209,7 @@ async function handleCreateUser(request, response, data) {
     phone: normalizePhone(body.phone),
     passwordHash: hashPassword(password),
     role: normalizeUserRole(body.role),
+    sellerGoal: normalizeMoney(body.sellerGoal),
     createdAt: new Date().toISOString(),
   };
 
@@ -1251,6 +1252,7 @@ async function handleUpdateUser(request, response, data, userId) {
     username,
     phone: normalizePhone(body.phone),
     role: normalizeUserRole(body.role || previous.role),
+    sellerGoal: normalizeMoney(body.sellerGoal ?? previous.sellerGoal),
     updatedAt: new Date().toISOString(),
   };
 
@@ -1571,6 +1573,7 @@ function publicUser(user) {
     username: user.username,
     phone: user.phone || "",
     role: user.role,
+    sellerGoal: normalizeMoney(user.sellerGoal),
     createdAt: user.createdAt,
   };
 }

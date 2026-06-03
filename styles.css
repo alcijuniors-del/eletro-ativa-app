@@ -341,6 +341,17 @@ button {
   color: #ffc078;
 }
 
+.seller-goal-pill {
+  width: fit-content;
+  border: 1px solid rgba(54, 226, 154, 0.32);
+  border-radius: 999px;
+  background: rgba(54, 226, 154, 0.1);
+  color: #8cffc9;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 6px 9px;
+}
+
 .compact-button {
   min-height: 34px;
   padding: 7px 10px;
@@ -1458,6 +1469,51 @@ textarea:focus {
 .crm-list {
   display: grid;
   gap: 12px;
+}
+
+.seller-ranking {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 14px;
+}
+
+.seller-ranking-list {
+  display: grid;
+  gap: 10px;
+}
+
+.seller-ranking-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--green);
+  border-radius: 8px;
+  background: rgba(14, 12, 20, 0.72);
+  padding: 12px;
+}
+
+.seller-ranking-item > span {
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.seller-ranking-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.seller-ranking-metrics span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 850;
+  padding: 6px 9px;
 }
 
 .seller-crm-panel .crm-list {

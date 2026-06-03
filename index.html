@@ -79,6 +79,7 @@
         <div class="account-panel">
           <span class="role-pill" id="current-user-role"></span>
           <strong id="current-user-name"></strong>
+          <span class="seller-goal-pill hidden" id="seller-goal-pill">Meta: R$ 0</span>
           <button class="ghost-button compact-button" id="logout-button" type="button">Sair</button>
         </div>
 
@@ -528,6 +529,10 @@
 
           <section class="metrics crm-metrics" aria-label="Resumo do CRM">
             <article class="metric">
+              <span class="metric-label">Orçamentos</span>
+              <strong id="crm-metric-total">0</strong>
+            </article>
+            <article class="metric">
               <span class="metric-label">Abertas</span>
               <strong id="crm-metric-open">0</strong>
             </article>
@@ -542,6 +547,10 @@
             <article class="metric" id="crm-metric-amount-card">
               <span class="metric-label">Valor aberto</span>
               <strong id="crm-metric-amount">R$ 0</strong>
+            </article>
+            <article class="metric">
+              <span class="metric-label">Conversão</span>
+              <strong id="crm-metric-conversion">0%</strong>
             </article>
           </section>
 
@@ -651,6 +660,13 @@
                 <button class="manager-tab" type="button" data-crm-filter="perdido">Perdidas <span id="crm-count-lost">0</span></button>
               </div>
               <div class="crm-list" id="crm-list"></div>
+              <section class="seller-ranking hidden" id="seller-ranking">
+                <div class="panel-heading">
+                  <h2>Ranking de vendedores</h2>
+                  <span>3 unidades</span>
+                </div>
+                <div class="seller-ranking-list" id="seller-ranking-list"></div>
+              </section>
               <div class="empty-state hidden" id="crm-empty-state">
                 <strong>Nenhuma oportunidade no CRM</strong>
                 <span>Cadastre um orçamento para começar o acompanhamento comercial.</span>
@@ -865,6 +881,10 @@
           <label>
             WhatsApp
             <input name="phone" type="tel" required placeholder="Ex.: 65999999999" />
+          </label>
+          <label>
+            Meta mensal
+            <input name="sellerGoal" type="text" inputmode="decimal" placeholder="Ex.: 50000,00" />
           </label>
           <label id="user-password-label">
             Senha
