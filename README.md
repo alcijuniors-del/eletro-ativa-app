@@ -111,6 +111,22 @@ WHATSAPP_TO=5565992524994
 WHATSAPP_API_VERSION=v23.0
 ```
 
+Variáveis opcionais para CRM por e-mail:
+
+```text
+EMAIL_CRM_WEBHOOK_SECRET=uma_chave_grande_e_secreta
+EMAIL_CRM_DEFAULT_UNIT=CORP
+EMAIL_CRM_DEFAULT_OWNER_USERNAME=usuario_do_responsavel
+```
+
+Com `EMAIL_CRM_WEBHOOK_SECRET` configurada, o app libera a rota:
+
+```text
+POST /api/email/crm
+```
+
+Serviços de e-mail como SendGrid, Mailgun ou Postmark podem encaminhar mensagens recebidas para essa rota. Envie a chave no header `x-email-crm-secret` ou na query `?secret=...`. O app cria automaticamente uma oportunidade no CRM com assunto, remetente, corpo do e-mail e anexos enviados no campo `crmAttachments` ou `attachments`.
+
 No Render, use o arquivo `render.yaml`. Ele já configura o comando `node server.js`, rota de saúde `/api/health` e disco persistente em `/opt/render/project/src/storage`.
 
 ## O que já faz

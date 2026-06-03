@@ -128,6 +128,7 @@ let users = [];
 let personalTasks = [];
 let meetings = [];
 let crmOpportunities = [];
+let emailMode = null;
 let currentUser = null;
 let selectedId = null;
 let currentStatus = "todas";
@@ -248,6 +249,9 @@ const elements = {
   crmMetricNegotiation: document.querySelector("#crm-metric-negotiation"),
   crmMetricWon: document.querySelector("#crm-metric-won"),
   crmMetricAmount: document.querySelector("#crm-metric-amount"),
+  emailModeStatus: document.querySelector("#email-mode-status"),
+  emailModeText: document.querySelector("#email-mode-text"),
+  emailModeUrl: document.querySelector("#email-mode-url"),
   crmCountAll: document.querySelector("#crm-count-all"),
   crmCountNew: document.querySelector("#crm-count-new"),
   crmCountService: document.querySelector("#crm-count-service"),
@@ -321,6 +325,7 @@ async function loadSession() {
     personalTasks = [];
     meetings = [];
     crmOpportunities = [];
+    emailMode = null;
     selectedId = null;
   }
 }
@@ -342,6 +347,7 @@ function applyState(payload) {
   personalTasks = Array.isArray(payload.personalTasks) ? payload.personalTasks : personalTasks;
   meetings = Array.isArray(payload.meetings) ? payload.meetings : meetings;
   crmOpportunities = Array.isArray(payload.crmOpportunities) ? payload.crmOpportunities : crmOpportunities;
+  emailMode = payload.emailMode ?? emailMode;
 
   if (!requests.some((request) => request.id === selectedId)) {
     selectedId = requests[0]?.id ?? null;
@@ -367,6 +373,7 @@ async function apiFetch(path, options = {}) {
       personalTasks = [];
       meetings = [];
       crmOpportunities = [];
+      emailMode = null;
       renderAuth();
     }
     throw new Error(payload.error || "Nao foi possivel concluir a acao.");
@@ -819,6 +826,7 @@ function renderCrm() {
   if (!isAdmin()) return;
 
   renderCrmOwnerOptions();
+  renderEmailModeStatus();
   const openOpportunities = crmOpportunities.filter((item) => !["fechado", "perdido"].includes(item.status));
   const negotiationOpportunities = crmOpportunities.filter((item) => item.status === "negociacao");
   const wonOpportunities = crmOpportunities.filter((item) => item.status === "fechado");
@@ -900,6 +908,17 @@ function renderCrm() {
 
     elements.crmList.append(card);
   });
+}
+
+function renderEmailModeStatus() {
+  if (!elements.emailModeStatus) return;
+  const enabled = Boolean(emailMode?.enabled);
+  elements.emailModeStatus.classList.toggle("email-mode-enabled", enabled);
+  elements.emailModeStatus.classList.toggle("email-mode-disabled", !enabled);
+  elements.emailModeText.textContent = enabled
+    ? "Ativo. Encaminhe os e-mails de orçamento para esta rota usando a chave secreta."
+    : "Pendente. Configure EMAIL_CRM_WEBHOOK_SECRET no Render para liberar entrada automática.";
+  elements.emailModeUrl.textContent = emailMode?.webhookUrl || "/api/email/crm";
 }
 
 function renderCrmOwnerOptions() {
@@ -3292,6 +3311,7 @@ async function logout() {
   personalTasks = [];
   meetings = [];
   crmOpportunities = [];
+  emailMode = null;
   selectedId = null;
   adminView = "requests";
   managerWorkspace = "requests";

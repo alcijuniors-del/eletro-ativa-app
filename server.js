@@ -37,6 +37,9 @@ const MEETING_TIME_SLOTS = ["11:00", "17:00", "18:00"];
 const MEETING_TIME_SLOT_SET = new Set(MEETING_TIME_SLOTS);
 const MEETING_SLOT_HORIZON_DAYS = Math.max(1, Number(process.env.MEETING_SLOT_HORIZON_DAYS || 365) || 365);
 const MAX_MEETING_BLOCK_DAYS = 365;
+const EMAIL_CRM_WEBHOOK_SECRET = String(process.env.EMAIL_CRM_WEBHOOK_SECRET || "").trim();
+const EMAIL_CRM_DEFAULT_UNIT_RAW = String(process.env.EMAIL_CRM_DEFAULT_UNIT || "CORP");
+const EMAIL_CRM_DEFAULT_OWNER_USERNAME = normalizeUsername(process.env.EMAIL_CRM_DEFAULT_OWNER_USERNAME || "");
 
 const sessions = new Map();
 const loginAttempts = new Map();
@@ -66,6 +69,8 @@ const unitLabels = {
   CNP: "CNP",
   CORP: "CORP",
 };
+
+const EMAIL_CRM_DEFAULT_UNIT = normalizeUnit(EMAIL_CRM_DEFAULT_UNIT_RAW);
 
 const responseDeadlineDays = {
   alta: 2,
@@ -148,6 +153,11 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/email/crm") {
+    await handleEmailCrmWebhook(request, response, url);
+    return;
+  }
+
   const data = await readData();
   const currentUser = getCurrentUser(request, data);
 
@@ -157,7 +167,13 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/state") {
-    sendJson(response, 200, buildStatePayload(data, currentUser));
+    sendJson(response, 200, buildStatePayload(data, currentUser, request));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/email-mode/status") {
+    requireAdmin(currentUser);
+    sendJson(response, 200, { ok: true, emailMode: emailModeStatus(request) });
     return;
   }
 
@@ -371,7 +387,7 @@ async function handleLogin(request, response) {
     response,
     200,
     {
-      ...buildStatePayload(data, user),
+      ...buildStatePayload(data, user, request),
       ok: true,
     },
     {
@@ -522,16 +538,29 @@ async function handleCreatePersonalTask(request, response, data, currentUser) {
 
 async function handleCreateCrmOpportunity(request, response, data, currentUser) {
   const body = await readRequestBody(request);
-  const now = new Date().toISOString();
-  const clientName = cleanText(body.clientName, "");
-  const title = cleanText(body.title, clientName ? `Orcamento - ${clientName}` : "Orcamento sem titulo");
+  const opportunity = await buildCrmOpportunity(data, body, currentUser);
 
-  if (!clientName) {
+  if (!opportunity.clientName) {
     sendJson(response, 400, { ok: false, error: "Informe o nome do cliente." });
     return;
   }
 
-  const opportunity = {
+  data.crmOpportunities = [opportunity, ...data.crmOpportunities];
+  await writeData(data);
+  sendJson(response, 201, {
+    ok: true,
+    opportunity,
+    opportunities: sortCrmOpportunities(data.crmOpportunities),
+  });
+}
+
+async function buildCrmOpportunity(data, body, currentUser) {
+  const now = new Date().toISOString();
+  const clientName = cleanText(body.clientName, "");
+  const title = cleanText(body.title, clientName ? `Orcamento - ${clientName}` : "Orcamento sem titulo");
+  const ownerId = cleanText(body.ownerId, "");
+
+  return {
     id: createId("crm"),
     title,
     clientName,
@@ -539,8 +568,8 @@ async function handleCreateCrmOpportunity(request, response, data, currentUser) 
     phone: normalizePhone(body.phone),
     email: normalizeEmail(body.email),
     unit: normalizeUnit(body.unit),
-    ownerId: cleanText(body.ownerId, ""),
-    ownerName: crmOwnerName(data.users, body.ownerId),
+    ownerId,
+    ownerName: crmOwnerName(data.users, ownerId),
     amount: normalizeMoney(body.amount),
     source: cleanText(body.source, "Cadastro manual"),
     status: normalizeCrmStatus(body.status),
@@ -552,13 +581,67 @@ async function handleCreateCrmOpportunity(request, response, data, currentUser) 
     updatedAt: now,
     history: [`Oportunidade criada em ${formatDateTime(now)} por ${currentUser.name}`],
   };
+}
 
+async function handleEmailCrmWebhook(request, response, url) {
+  if (!EMAIL_CRM_WEBHOOK_SECRET) {
+    sendJson(response, 503, { ok: false, error: "Modo e-mail do CRM ainda nao configurado." });
+    return;
+  }
+
+  const body = await readRequestBody(request);
+  const providedSecret =
+    url.searchParams.get("secret") ||
+    String(request.headers["x-email-crm-secret"] || "") ||
+    cleanText(body.secret, "");
+
+  if (!timingSafeEqual(String(providedSecret || ""), EMAIL_CRM_WEBHOOK_SECRET)) {
+    sendJson(response, 401, { ok: false, error: "Chave secreta invalida." });
+    return;
+  }
+
+  const data = await readData();
+  const messageId = normalizeEmailMessageId(body.messageId || body["message-id"] || body.MessageID || body["Message-Id"]);
+
+  if (messageId && data.crmEmailImports.some((item) => item.messageId === messageId)) {
+    const imported = data.crmEmailImports.find((item) => item.messageId === messageId);
+    sendJson(response, 200, {
+      ok: true,
+      duplicate: true,
+      opportunityId: imported.opportunityId,
+      message: "E-mail ja importado anteriormente.",
+    });
+    return;
+  }
+
+  const opportunity = await buildCrmOpportunity(data, emailBodyToCrmPayload(body, data.users), {
+    id: "email-crm",
+    name: "Modo e-mail CRM",
+  });
+
+  if (!opportunity.clientName) {
+    sendJson(response, 400, { ok: false, error: "Nao foi possivel identificar o cliente no e-mail." });
+    return;
+  }
+
+  opportunity.emailMessageId = messageId;
+  opportunity.history.push(`Importada automaticamente por e-mail em ${formatDateTime(opportunity.createdAt)}`);
   data.crmOpportunities = [opportunity, ...data.crmOpportunities];
+  if (messageId) {
+    data.crmEmailImports = [
+      {
+        messageId,
+        opportunityId: opportunity.id,
+        importedAt: opportunity.createdAt,
+      },
+      ...data.crmEmailImports,
+    ].slice(0, 1000);
+  }
+
   await writeData(data);
   sendJson(response, 201, {
     ok: true,
     opportunity,
-    opportunities: sortCrmOpportunities(data.crmOpportunities),
   });
 }
 
@@ -1236,7 +1319,7 @@ async function notifyRequester(taskRequest) {
   return result;
 }
 
-function buildStatePayload(data, currentUser) {
+function buildStatePayload(data, currentUser, request = null) {
   const user = publicUser(currentUser);
   const isAdmin = currentUser.role === "admin";
   const visibleRequests = isAdmin ? sortRequests(data.requests) : visibleRequestsForUser(data.requests, currentUser);
@@ -1249,7 +1332,25 @@ function buildStatePayload(data, currentUser) {
     personalTasks: isAdmin ? sortPersonalTasks(data.personalTasks) : [],
     meetings: visibleMeetings(data.meetings, currentUser),
     crmOpportunities: isAdmin ? sortCrmOpportunities(data.crmOpportunities) : [],
+    emailMode: isAdmin ? emailModeStatus(request) : null,
   };
+}
+
+function emailModeStatus(request = null) {
+  return {
+    enabled: Boolean(EMAIL_CRM_WEBHOOK_SECRET),
+    webhookPath: "/api/email/crm",
+    webhookUrl: request ? `${requestOrigin(request)}/api/email/crm` : "/api/email/crm",
+    secretConfigured: Boolean(EMAIL_CRM_WEBHOOK_SECRET),
+    defaultUnit: EMAIL_CRM_DEFAULT_UNIT,
+    defaultOwnerUsername: EMAIL_CRM_DEFAULT_OWNER_USERNAME,
+  };
+}
+
+function requestOrigin(request) {
+  const proto = String(request.headers["x-forwarded-proto"] || "https").split(",")[0].trim() || "https";
+  const host = String(request.headers["x-forwarded-host"] || request.headers.host || "").split(",")[0].trim();
+  return host ? `${proto}://${host}` : "";
 }
 
 async function readData() {
@@ -1262,6 +1363,7 @@ async function readData() {
     personalTasks: Array.isArray(parsed.personalTasks) ? parsed.personalTasks : [],
     meetings: Array.isArray(parsed.meetings) ? parsed.meetings : [],
     crmOpportunities: Array.isArray(parsed.crmOpportunities) ? parsed.crmOpportunities : [],
+    crmEmailImports: Array.isArray(parsed.crmEmailImports) ? parsed.crmEmailImports : [],
   };
   const migrated = await migrateLegacyAttachments(data.requests);
   const migratedHighPriorityDueDates = migrateHighPriorityDueDates(data.requests);
@@ -1391,6 +1493,7 @@ async function ensureDataFile() {
     personalTasks: [],
     meetings: [],
     crmOpportunities: [],
+    crmEmailImports: [],
   };
 
   await writeData(initialData);
@@ -1557,6 +1660,88 @@ function normalizeMeetingStatus(value) {
 
 function normalizeCrmStatus(value) {
   return Object.prototype.hasOwnProperty.call(crmStatusLabels, value) ? value : "novo";
+}
+
+function emailBodyToCrmPayload(body = {}, users = []) {
+  const subject = cleanText(body.subject || body.Subject || body.title, "Orcamento recebido por e-mail");
+  const from = cleanText(body.from || body.From || body.sender || body.Sender || "", "");
+  const replyTo = cleanText(body.replyTo || body["reply-to"] || body.ReplyTo || "", "");
+  const text = cleanText(
+    body.text || body.TextBody || body["body-plain"] || body["stripped-text"] || stripHtml(body.html || body.HtmlBody || ""),
+    "",
+  );
+  const clientName = cleanText(body.clientName || body.cliente || extractSenderName(from), "");
+  const senderEmail = normalizeEmail(body.email || extractEmailAddress(replyTo) || extractEmailAddress(from));
+  const owner = defaultCrmEmailOwner(users, body.ownerId);
+
+  return {
+    title: subject,
+    clientName,
+    contactName: cleanText(body.contactName || body.contato || extractSenderName(from), ""),
+    phone: normalizePhone(body.phone || body.telefone || body.whatsapp || extractPhone(text)),
+    email: senderEmail,
+    unit: normalizeUnit(body.unit || body.unidade || EMAIL_CRM_DEFAULT_UNIT),
+    ownerId: owner?.id || "",
+    amount: body.amount || body.valor || extractMoney(text),
+    source: "E-mail automático",
+    status: "novo",
+    notes: [
+      `Assunto: ${subject}`,
+      from ? `Remetente: ${from}` : "",
+      text ? `Conteudo:\n${text.slice(0, 4000)}` : "",
+    ].filter(Boolean).join("\n\n"),
+    crmAttachments: Array.isArray(body.crmAttachments)
+      ? body.crmAttachments
+      : Array.isArray(body.attachments)
+        ? body.attachments
+        : [],
+  };
+}
+
+function stripHtml(value = "") {
+  return String(value)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+\n/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function extractSenderName(value = "") {
+  const text = String(value || "").trim();
+  const bracketIndex = text.indexOf("<");
+  const name = bracketIndex === -1 ? text : text.slice(0, bracketIndex);
+  const cleaned = name.replace(/^["']|["']$/g, "").trim();
+  if (cleaned && !cleaned.includes("@")) return cleaned;
+  const email = extractEmailAddress(text);
+  return email ? email.split("@")[0].replace(/[._-]+/g, " ") : "";
+}
+
+function extractEmailAddress(value = "") {
+  const match = String(value || "").match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match ? match[0].toLowerCase() : "";
+}
+
+function extractPhone(value = "") {
+  const match = String(value || "").match(/(?:\+?55)?\s?\(?\d{2}\)?\s?\d{4,5}[-.\s]?\d{4}/);
+  return match ? match[0] : "";
+}
+
+function extractMoney(value = "") {
+  const match = String(value || "").match(/R\$\s?(\d{1,3}(?:\.\d{3})*|\d+)(?:,\d{2})?/i);
+  return match ? match[0].replace(/^R\$\s?/i, "") : "";
+}
+
+function normalizeEmailMessageId(value = "") {
+  return String(value || "").trim().replace(/[<>\s]/g, "").slice(0, 240);
+}
+
+function defaultCrmEmailOwner(users = [], ownerId = "") {
+  const directOwner = users.find((user) => user.id === ownerId);
+  if (directOwner) return directOwner;
+  if (!EMAIL_CRM_DEFAULT_OWNER_USERNAME) return null;
+  return users.find((user) => normalizeUsername(user.username) === EMAIL_CRM_DEFAULT_OWNER_USERNAME) || null;
 }
 
 function normalizeUnit(value) {

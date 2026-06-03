@@ -764,6 +764,47 @@ textarea:focus {
     var(--surface);
 }
 
+.email-mode-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 12px 14px;
+}
+
+.email-mode-status strong,
+.email-mode-status span {
+  display: block;
+}
+
+.email-mode-status span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.email-mode-status code {
+  max-width: 48%;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  color: #fff;
+  padding: 8px 10px;
+}
+
+.email-mode-enabled {
+  border-color: rgba(54, 226, 154, 0.38);
+}
+
+.email-mode-disabled {
+  border-color: rgba(255, 92, 92, 0.34);
+}
+
 .manager-submit-header {
   display: flex;
   align-items: flex-start;
