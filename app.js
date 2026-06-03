@@ -254,6 +254,7 @@ const elements = {
   crmMetricOpen: document.querySelector("#crm-metric-open"),
   crmMetricNegotiation: document.querySelector("#crm-metric-negotiation"),
   crmMetricWon: document.querySelector("#crm-metric-won"),
+  crmMetricAmountCard: document.querySelector("#crm-metric-amount-card"),
   crmMetricAmount: document.querySelector("#crm-metric-amount"),
   emailModeStatus: document.querySelector("#email-mode-status"),
   emailModeText: document.querySelector("#email-mode-text"),
@@ -867,6 +868,7 @@ function renderCrm() {
   elements.crmCountNegotiation.textContent = negotiationOpportunities.length;
   elements.crmCountWon.textContent = wonOpportunities.length;
   elements.crmCountLost.textContent = scopedOpportunities.filter((item) => item.status === "perdido").length;
+  elements.crmPanel.classList.toggle("seller-crm-panel", currentUser?.role === "seller");
   elements.crmForm.classList.toggle("hidden", !isAdmin());
   elements.emailModeStatus.classList.toggle("hidden", !isAdmin());
   elements.crmExportButton.classList.toggle("hidden", !isAdmin());
@@ -903,8 +905,8 @@ function renderCrm() {
         <div><span>Contato</span><strong>${escapeHtml(opportunity.contactName || "Não informado")}</strong></div>
         <div><span>WhatsApp</span><strong>${escapeHtml(formatPhone(opportunity.phone))}</strong></div>
         <div><span>Valor</span><strong>${formatCurrency(opportunity.amount)}</strong></div>
-        <div><span>Unidade</span><strong>${unitLabel(opportunity.unit)}</strong></div>
-        <div><span>Responsável</span><strong>${escapeHtml(opportunity.ownerName || "Não definido")}</strong></div>
+        ${isAdmin() ? `<div><span>Unidade</span><strong>${unitLabel(opportunity.unit)}</strong></div>` : ""}
+        ${isAdmin() ? `<div><span>Responsável</span><strong>${escapeHtml(opportunity.ownerName || "Não definido")}</strong></div>` : ""}
       </div>
       ${opportunity.email ? `<p class="request-description">E-mail: ${escapeHtml(opportunity.email)}</p>` : ""}
       ${opportunity.notes ? `<p class="request-description">${escapeHtml(opportunity.notes)}</p>` : ""}
