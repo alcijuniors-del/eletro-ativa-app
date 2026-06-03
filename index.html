@@ -138,6 +138,10 @@
               <span aria-hidden="true">C</span>
               Reuniões
             </button>
+            <button class="ghost-button" id="crm-view-button" type="button" data-admin-only>
+              <span aria-hidden="true">$</span>
+              CRM Vendas
+            </button>
             <button class="ghost-button" id="users-button" type="button" data-admin-only>
               <span aria-hidden="true">U</span>
               Usuários
@@ -505,6 +509,128 @@
           <div class="empty-state hidden" id="meeting-empty-state">
             <strong>Nenhum horário nesta aba</strong>
             <span>Os horários criados e agendados aparecem aqui.</span>
+          </div>
+        </section>
+
+        <section class="crm-panel hidden" id="crm-panel" data-admin-only aria-label="CRM de vendas">
+          <div class="manager-submit-header">
+            <div>
+              <p class="eyebrow">Comercial</p>
+              <h2>CRM de vendas</h2>
+            </div>
+            <div class="manager-card-actions">
+              <button class="ghost-button compact-button" id="crm-export-button" type="button">
+                <span aria-hidden="true">⇩</span>
+                Exportar
+              </button>
+            </div>
+          </div>
+
+          <section class="metrics crm-metrics" aria-label="Resumo do CRM">
+            <article class="metric">
+              <span class="metric-label">Abertas</span>
+              <strong id="crm-metric-open">0</strong>
+            </article>
+            <article class="metric">
+              <span class="metric-label">Negociação</span>
+              <strong id="crm-metric-negotiation">0</strong>
+            </article>
+            <article class="metric">
+              <span class="metric-label">Fechadas</span>
+              <strong id="crm-metric-won">0</strong>
+            </article>
+            <article class="metric">
+              <span class="metric-label">Valor aberto</span>
+              <strong id="crm-metric-amount">R$ 0</strong>
+            </article>
+          </section>
+
+          <div class="crm-layout">
+            <form class="request-form inline-form crm-form" id="crm-form">
+              <div class="form-grid">
+                <label>
+                  Cliente
+                  <input name="clientName" type="text" required placeholder="Nome do cliente" />
+                </label>
+                <label>
+                  Contato
+                  <input name="contactName" type="text" placeholder="Pessoa de contato" />
+                </label>
+                <label>
+                  WhatsApp
+                  <input name="phone" type="tel" placeholder="65999999999" />
+                </label>
+                <label>
+                  E-mail
+                  <input name="email" type="email" placeholder="cliente@email.com" />
+                </label>
+                <label>
+                  Unidade
+                  <select name="unit" required>
+                    <option value="SPZ">SPZ</option>
+                    <option value="CNP">CNP</option>
+                    <option value="CORP">CORP</option>
+                  </select>
+                </label>
+                <label>
+                  Responsável
+                  <select name="ownerId" id="crm-owner-input"></select>
+                </label>
+                <label>
+                  Valor do orçamento
+                  <input name="amount" type="text" inputmode="decimal" placeholder="0,00" />
+                </label>
+                <label>
+                  Status
+                  <select name="status">
+                    <option value="novo">Novo</option>
+                    <option value="atendimento">Em atendimento</option>
+                    <option value="negociacao">Negociação</option>
+                    <option value="fechado">Fechado</option>
+                    <option value="perdido">Perdido</option>
+                  </select>
+                </label>
+                <label class="form-wide">
+                  Título
+                  <input name="title" type="text" placeholder="Ex.: Orçamento padrão de entrada" />
+                </label>
+                <label class="form-wide">
+                  Origem
+                  <input name="source" type="text" placeholder="Cadastro manual, e-mail, indicação..." value="Cadastro manual" />
+                </label>
+                <label class="form-wide">
+                  Observações
+                  <textarea name="notes" rows="4" placeholder="Próximo passo, negociação, prazo prometido e detalhes comerciais."></textarea>
+                </label>
+                <label class="form-wide file-field">
+                  Anexar orçamento
+                  <input name="crmAttachments" type="file" accept="image/*,application/pdf" multiple />
+                  <span class="input-hint">Anexe PDF ou imagem do orçamento. Até 12 arquivos.</span>
+                </label>
+              </div>
+              <div class="manager-card-actions">
+                <button class="primary-button" type="submit">
+                  <span aria-hidden="true">+</span>
+                  Criar oportunidade
+                </button>
+              </div>
+            </form>
+
+            <div class="crm-board">
+              <div class="manager-tabs crm-tabs" role="tablist" aria-label="Funil de vendas">
+                <button class="manager-tab active" type="button" data-crm-filter="todos">Todos <span id="crm-count-all">0</span></button>
+                <button class="manager-tab" type="button" data-crm-filter="novo">Novo <span id="crm-count-new">0</span></button>
+                <button class="manager-tab" type="button" data-crm-filter="atendimento">Atendimento <span id="crm-count-service">0</span></button>
+                <button class="manager-tab" type="button" data-crm-filter="negociacao">Negociação <span id="crm-count-negotiation">0</span></button>
+                <button class="manager-tab" type="button" data-crm-filter="fechado">Fechadas <span id="crm-count-won">0</span></button>
+                <button class="manager-tab" type="button" data-crm-filter="perdido">Perdidas <span id="crm-count-lost">0</span></button>
+              </div>
+              <div class="crm-list" id="crm-list"></div>
+              <div class="empty-state hidden" id="crm-empty-state">
+                <strong>Nenhuma oportunidade no CRM</strong>
+                <span>Cadastre um orçamento para começar o acompanhamento comercial.</span>
+              </div>
+            </div>
           </div>
         </section>
 

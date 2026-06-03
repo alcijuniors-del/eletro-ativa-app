@@ -714,7 +714,8 @@ textarea:focus {
 .manager-history-panel,
 .performance-panel,
 .personal-tasks-panel,
-.meetings-panel {
+.meetings-panel,
+.crm-panel {
   display: grid;
   gap: 18px;
   max-width: 1040px;
@@ -753,6 +754,13 @@ textarea:focus {
   background:
     linear-gradient(140deg, rgba(54, 226, 154, 0.12), transparent 34%),
     linear-gradient(320deg, rgba(255, 122, 24, 0.12), transparent 42%),
+    var(--surface);
+}
+
+.crm-panel {
+  background:
+    linear-gradient(140deg, rgba(70, 183, 255, 0.12), transparent 34%),
+    linear-gradient(320deg, rgba(54, 226, 154, 0.1), transparent 42%),
     var(--surface);
 }
 
@@ -1284,7 +1292,15 @@ textarea:focus {
   align-items: start;
 }
 
-.personal-task-form {
+.crm-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.personal-task-form,
+.crm-form {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.045);
@@ -1305,7 +1321,8 @@ textarea:focus {
   min-height: 34px;
 }
 
-.personal-task-board {
+.personal-task-board,
+.crm-board {
   display: grid;
   gap: 12px;
   min-width: 0;
@@ -1317,12 +1334,20 @@ textarea:focus {
   gap: 10px;
 }
 
-.personal-task-list {
+.crm-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.personal-task-list,
+.crm-list {
   display: grid;
   gap: 12px;
 }
 
-.personal-task-card {
+.personal-task-card,
+.crm-card {
   display: grid;
   gap: 12px;
   border: 1px solid var(--line);
@@ -1340,6 +1365,68 @@ textarea:focus {
 
 .personal-task-card.resolved {
   border-left-color: var(--green);
+}
+
+.crm-card.crm-novo {
+  border-left-color: var(--red);
+}
+
+.crm-card.crm-atendimento,
+.crm-card.crm-negociacao {
+  border-left-color: var(--orange);
+}
+
+.crm-card.crm-fechado {
+  border-left-color: var(--green);
+}
+
+.crm-card.crm-perdido {
+  border-left-color: rgba(255, 255, 255, 0.34);
+}
+
+.crm-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.crm-card-grid div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 9px;
+}
+
+.crm-card-grid span,
+.crm-card-actions label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.crm-card-grid strong {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: #fff;
+}
+
+.crm-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+.crm-card-actions label {
+  min-width: 180px;
+  flex: 1;
+}
+
+.crm-card-actions select {
+  margin-top: 6px;
 }
 
 .personal-resolution-box {
@@ -1821,7 +1908,8 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
-  .personal-tasks-layout {
+  .personal-tasks-layout,
+  .crm-layout {
     grid-template-columns: 1fr;
   }
 

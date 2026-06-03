@@ -91,6 +91,14 @@ const priorityWeight = {
   baixa: 3,
 };
 
+const crmStatusLabels = {
+  novo: "Novo",
+  atendimento: "Em atendimento",
+  negociacao: "Negociacao",
+  fechado: "Fechado",
+  perdido: "Perdido",
+};
+
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
@@ -193,6 +201,31 @@ async function handleApi(request, response, url) {
 
   if (request.method === "POST" && url.pathname === "/api/requests") {
     await handleCreateRequest(request, response, data, currentUser);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/crm-opportunities") {
+    requireAdmin(currentUser);
+    sendJson(response, 200, { ok: true, opportunities: sortCrmOpportunities(data.crmOpportunities) });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/crm-opportunities") {
+    requireAdmin(currentUser);
+    await handleCreateCrmOpportunity(request, response, data, currentUser);
+    return;
+  }
+
+  const crmOpportunityMatch = url.pathname.match(/^\/api\/crm-opportunities\/([^/]+)$/);
+  if (crmOpportunityMatch && request.method === "PATCH") {
+    requireAdmin(currentUser);
+    await handleUpdateCrmOpportunity(request, response, data, crmOpportunityMatch[1]);
+    return;
+  }
+
+  if (crmOpportunityMatch && request.method === "DELETE") {
+    requireAdmin(currentUser);
+    await handleDeleteCrmOpportunity(response, data, crmOpportunityMatch[1]);
     return;
   }
 
@@ -485,6 +518,114 @@ async function handleCreatePersonalTask(request, response, data, currentUser) {
     personalTask,
     personalTasks: sortPersonalTasks(data.personalTasks),
   });
+}
+
+async function handleCreateCrmOpportunity(request, response, data, currentUser) {
+  const body = await readRequestBody(request);
+  const now = new Date().toISOString();
+  const clientName = cleanText(body.clientName, "");
+  const title = cleanText(body.title, clientName ? `Orcamento - ${clientName}` : "Orcamento sem titulo");
+
+  if (!clientName) {
+    sendJson(response, 400, { ok: false, error: "Informe o nome do cliente." });
+    return;
+  }
+
+  const opportunity = {
+    id: createId("crm"),
+    title,
+    clientName,
+    contactName: cleanText(body.contactName, ""),
+    phone: normalizePhone(body.phone),
+    email: normalizeEmail(body.email),
+    unit: normalizeUnit(body.unit),
+    ownerId: cleanText(body.ownerId, ""),
+    ownerName: crmOwnerName(data.users, body.ownerId),
+    amount: normalizeMoney(body.amount),
+    source: cleanText(body.source, "Cadastro manual"),
+    status: normalizeCrmStatus(body.status),
+    notes: cleanText(body.notes, ""),
+    attachments: await sanitizeAttachments(body.crmAttachments),
+    createdBy: currentUser.id,
+    createdByName: currentUser.name,
+    createdAt: now,
+    updatedAt: now,
+    history: [`Oportunidade criada em ${formatDateTime(now)} por ${currentUser.name}`],
+  };
+
+  data.crmOpportunities = [opportunity, ...data.crmOpportunities];
+  await writeData(data);
+  sendJson(response, 201, {
+    ok: true,
+    opportunity,
+    opportunities: sortCrmOpportunities(data.crmOpportunities),
+  });
+}
+
+async function handleUpdateCrmOpportunity(request, response, data, opportunityId) {
+  const body = await readRequestBody(request);
+  const index = data.crmOpportunities.findIndex((item) => item.id === opportunityId);
+
+  if (index === -1) {
+    sendJson(response, 404, { ok: false, error: "Oportunidade nao encontrada." });
+    return;
+  }
+
+  const previous = data.crmOpportunities[index];
+  const now = new Date().toISOString();
+  const nextStatus = normalizeCrmStatus(body.status || previous.status);
+  const newAttachments = Array.isArray(body.crmAttachments) ? await sanitizeAttachments(body.crmAttachments) : [];
+  const history = Array.isArray(previous.history) ? [...previous.history] : [];
+
+  if (nextStatus !== previous.status) {
+    history.push(`Status alterado para ${crmStatusLabels[nextStatus]} em ${formatDateTime(now)}`);
+  }
+
+  if (newAttachments.length > 0) {
+    history.push(`${newAttachments.length} anexo${newAttachments.length === 1 ? "" : "s"} adicionado${newAttachments.length === 1 ? "" : "s"} em ${formatDateTime(now)}`);
+  }
+
+  const opportunity = {
+    ...previous,
+    title: body.title === undefined ? previous.title : cleanText(body.title, previous.title),
+    clientName: body.clientName === undefined ? previous.clientName : cleanText(body.clientName, previous.clientName),
+    contactName: body.contactName === undefined ? previous.contactName : cleanText(body.contactName, ""),
+    phone: body.phone === undefined ? previous.phone : normalizePhone(body.phone),
+    email: body.email === undefined ? previous.email : normalizeEmail(body.email),
+    unit: body.unit === undefined ? previous.unit : normalizeUnit(body.unit),
+    ownerId: body.ownerId === undefined ? previous.ownerId : cleanText(body.ownerId, ""),
+    ownerName: body.ownerId === undefined ? previous.ownerName : crmOwnerName(data.users, body.ownerId),
+    amount: body.amount === undefined ? previous.amount : normalizeMoney(body.amount),
+    source: body.source === undefined ? previous.source : cleanText(body.source, "Cadastro manual"),
+    status: nextStatus,
+    notes: body.notes === undefined ? previous.notes : cleanText(body.notes, ""),
+    attachments: [...(Array.isArray(previous.attachments) ? previous.attachments : []), ...newAttachments],
+    updatedAt: now,
+    history,
+  };
+
+  data.crmOpportunities[index] = opportunity;
+  await writeData(data);
+  sendJson(response, 200, {
+    ok: true,
+    opportunity,
+    opportunities: sortCrmOpportunities(data.crmOpportunities),
+  });
+}
+
+async function handleDeleteCrmOpportunity(response, data, opportunityId) {
+  const opportunityToDelete = data.crmOpportunities.find((item) => item.id === opportunityId);
+  const before = data.crmOpportunities.length;
+  data.crmOpportunities = data.crmOpportunities.filter((item) => item.id !== opportunityId);
+
+  if (data.crmOpportunities.length === before) {
+    sendJson(response, 404, { ok: false, error: "Oportunidade nao encontrada." });
+    return;
+  }
+
+  await deleteStoredAttachments(opportunityToDelete);
+  await writeData(data);
+  sendJson(response, 200, { ok: true, opportunities: sortCrmOpportunities(data.crmOpportunities) });
 }
 
 async function handleUpdatePersonalTask(request, response, data, currentUser, taskId) {
@@ -876,7 +1017,9 @@ async function handleDeleteRequest(response, data, requestId) {
 }
 
 async function handleAttachmentDownload(response, data, currentUser, attachmentId) {
-  const match = findAttachmentRecord(data.requests, currentUser, attachmentId);
+  const match =
+    findAttachmentRecord(data.requests, currentUser, attachmentId) ||
+    (currentUser.role === "admin" ? findCrmAttachmentRecord(data.crmOpportunities, attachmentId) : null);
 
   if (!match) {
     sendJson(response, 404, { ok: false, error: "Anexo nao encontrado." });
@@ -1105,6 +1248,7 @@ function buildStatePayload(data, currentUser) {
     users: isAdmin ? publicUsers(data.users) : [],
     personalTasks: isAdmin ? sortPersonalTasks(data.personalTasks) : [],
     meetings: visibleMeetings(data.meetings, currentUser),
+    crmOpportunities: isAdmin ? sortCrmOpportunities(data.crmOpportunities) : [],
   };
 }
 
@@ -1117,6 +1261,7 @@ async function readData() {
     requests: Array.isArray(parsed.requests) ? parsed.requests : [],
     personalTasks: Array.isArray(parsed.personalTasks) ? parsed.personalTasks : [],
     meetings: Array.isArray(parsed.meetings) ? parsed.meetings : [],
+    crmOpportunities: Array.isArray(parsed.crmOpportunities) ? parsed.crmOpportunities : [],
   };
   const migrated = await migrateLegacyAttachments(data.requests);
   const migratedHighPriorityDueDates = migrateHighPriorityDueDates(data.requests);
@@ -1245,6 +1390,7 @@ async function ensureDataFile() {
     requests: [],
     personalTasks: [],
     meetings: [],
+    crmOpportunities: [],
   };
 
   await writeData(initialData);
@@ -1409,11 +1555,32 @@ function normalizeMeetingStatus(value) {
   return ["available", "blocked", "booked"].includes(value) ? value : "available";
 }
 
+function normalizeCrmStatus(value) {
+  return Object.prototype.hasOwnProperty.call(crmStatusLabels, value) ? value : "novo";
+}
+
 function normalizeUnit(value) {
   const unit = String(value || "")
     .trim()
     .toUpperCase();
   return unitLabels[unit] ? unit : "SPZ";
+}
+
+function normalizeEmail(value = "") {
+  const email = String(value || "").trim().toLowerCase();
+  if (!email) return "";
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
+function normalizeMoney(value) {
+  const text = String(value ?? "").trim().replace(/\./g, "").replace(",", ".");
+  const number = Number(text);
+  return Number.isFinite(number) && number >= 0 ? Math.round(number * 100) / 100 : 0;
+}
+
+function crmOwnerName(users, ownerId) {
+  const user = users.find((item) => item.id === ownerId);
+  return user ? cleanText(user.name, "") : "";
 }
 
 function normalizeDateInput(value, fallback) {
@@ -1838,6 +2005,16 @@ function findAttachmentRecord(requests, currentUser, attachmentId) {
   return null;
 }
 
+function findCrmAttachmentRecord(opportunities, attachmentId) {
+  for (const opportunity of opportunities) {
+    const attachments = Array.isArray(opportunity.attachments) ? opportunity.attachments : [];
+    const attachment = attachments.find((item) => item.id === attachmentId);
+    if (attachment) return { opportunity, attachment };
+  }
+
+  return null;
+}
+
 function canViewRequestAttachment(taskRequest, currentUser) {
   if (currentUser.role === "admin") return true;
   return taskRequest.createdBy === currentUser.id || taskRequest.assigneeId === currentUser.id;
@@ -1875,6 +2052,26 @@ function sortRequests(items) {
 
     const createdDiff = new Date(right.createdAt || 0) - new Date(left.createdAt || 0);
     if (createdDiff !== 0) return createdDiff;
+
+    return String(right.id || "").localeCompare(String(left.id || ""));
+  });
+}
+
+function sortCrmOpportunities(items = []) {
+  const statusWeight = {
+    novo: 1,
+    atendimento: 2,
+    negociacao: 3,
+    fechado: 4,
+    perdido: 5,
+  };
+
+  return [...items].sort((left, right) => {
+    const statusDiff = (statusWeight[left.status] || 99) - (statusWeight[right.status] || 99);
+    if (statusDiff !== 0) return statusDiff;
+
+    const updatedDiff = new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
+    if (updatedDiff !== 0) return updatedDiff;
 
     return String(right.id || "").localeCompare(String(left.id || ""));
   });
@@ -2168,6 +2365,7 @@ async function readMultipartBody(request, contentType) {
     ...fields,
     attachments: await storeUploadedAttachments(files.attachments || []),
     responseAttachments: await storeUploadedAttachments(files.responseAttachments || []),
+    crmAttachments: await storeUploadedAttachments(files.crmAttachments || []),
   };
 }
 

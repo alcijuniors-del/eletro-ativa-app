@@ -70,6 +70,22 @@ const meetingStatusClasses = {
   booked: "status-resolvida",
 };
 
+const crmStatusLabels = {
+  novo: "Novo",
+  atendimento: "Em atendimento",
+  negociacao: "Negociação",
+  fechado: "Fechado",
+  perdido: "Perdido",
+};
+
+const crmStatusClasses = {
+  novo: "status-nova",
+  atendimento: "status-andamento",
+  negociacao: "status-andamento",
+  fechado: "status-resolvida",
+  perdido: "status-nova",
+};
+
 const priorityWeight = {
   alta: 1,
   media: 2,
@@ -111,6 +127,7 @@ let requests = [];
 let users = [];
 let personalTasks = [];
 let meetings = [];
+let crmOpportunities = [];
 let currentUser = null;
 let selectedId = null;
 let currentStatus = "todas";
@@ -121,6 +138,7 @@ let managerWorkspace = "requests";
 let adminView = "requests";
 let personalTaskFilter = "pendentes";
 let meetingTab = "reunioes";
+let crmFilter = "todos";
 let meetingSelectedDate = todayIso();
 let meetingCalendarDate = new Date();
 let renderedDetailId = null;
@@ -146,6 +164,7 @@ const elements = {
   performanceViewButton: document.querySelector("#performance-view-button"),
   personalTasksButton: document.querySelector("#personal-tasks-button"),
   meetingsViewButton: document.querySelector("#meetings-view-button"),
+  crmViewButton: document.querySelector("#crm-view-button"),
   navItems: document.querySelectorAll(".nav-item"),
   requestList: document.querySelector("#request-list"),
   emptyState: document.querySelector("#empty-state"),
@@ -218,6 +237,23 @@ const elements = {
   meetingCountBooked: document.querySelector("#meeting-count-booked"),
   meetingCountAvailable: document.querySelector("#meeting-count-available"),
   meetingCountCalendar: document.querySelector("#meeting-count-calendar"),
+  crmPanel: document.querySelector("#crm-panel"),
+  crmForm: document.querySelector("#crm-form"),
+  crmOwnerInput: document.querySelector("#crm-owner-input"),
+  crmExportButton: document.querySelector("#crm-export-button"),
+  crmTabs: document.querySelectorAll("[data-crm-filter]"),
+  crmList: document.querySelector("#crm-list"),
+  crmEmptyState: document.querySelector("#crm-empty-state"),
+  crmMetricOpen: document.querySelector("#crm-metric-open"),
+  crmMetricNegotiation: document.querySelector("#crm-metric-negotiation"),
+  crmMetricWon: document.querySelector("#crm-metric-won"),
+  crmMetricAmount: document.querySelector("#crm-metric-amount"),
+  crmCountAll: document.querySelector("#crm-count-all"),
+  crmCountNew: document.querySelector("#crm-count-new"),
+  crmCountService: document.querySelector("#crm-count-service"),
+  crmCountNegotiation: document.querySelector("#crm-count-negotiation"),
+  crmCountWon: document.querySelector("#crm-count-won"),
+  crmCountLost: document.querySelector("#crm-count-lost"),
   userModal: document.querySelector("#user-modal"),
   userForm: document.querySelector("#user-form"),
   userModalTitle: document.querySelector("#user-modal-title"),
@@ -284,6 +320,7 @@ async function loadSession() {
     users = [];
     personalTasks = [];
     meetings = [];
+    crmOpportunities = [];
     selectedId = null;
   }
 }
@@ -304,6 +341,7 @@ function applyState(payload) {
   users = Array.isArray(payload.users) ? payload.users : users;
   personalTasks = Array.isArray(payload.personalTasks) ? payload.personalTasks : personalTasks;
   meetings = Array.isArray(payload.meetings) ? payload.meetings : meetings;
+  crmOpportunities = Array.isArray(payload.crmOpportunities) ? payload.crmOpportunities : crmOpportunities;
 
   if (!requests.some((request) => request.id === selectedId)) {
     selectedId = requests[0]?.id ?? null;
@@ -328,6 +366,7 @@ async function apiFetch(path, options = {}) {
       users = [];
       personalTasks = [];
       meetings = [];
+      crmOpportunities = [];
       renderAuth();
     }
     throw new Error(payload.error || "Nao foi possivel concluir a acao.");
@@ -569,6 +608,7 @@ function renderAdminView() {
   const showingPerformance = adminView === "performance";
   const showingPersonalTasks = adminView === "personal";
   const showingMeetings = adminView === "meetings";
+  const showingCrm = adminView === "crm";
   elements.requestsAdminView.forEach((element) => {
     element.classList.toggle("hidden", !showingRequests);
   });
@@ -577,11 +617,13 @@ function renderAdminView() {
   elements.performancePanel.classList.toggle("hidden", !showingPerformance);
   elements.personalTasksPanel.classList.toggle("hidden", !showingPersonalTasks);
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
+  elements.crmPanel.classList.toggle("hidden", !showingCrm);
   elements.requestsViewButton.classList.toggle("active-view-button", adminView === "requests");
   elements.materialListsButton.classList.toggle("active-view-button", showingMaterialLists);
   elements.performanceViewButton.classList.toggle("active-view-button", showingPerformance);
   elements.personalTasksButton.classList.toggle("active-view-button", showingPersonalTasks);
   elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
+  elements.crmViewButton.classList.toggle("active-view-button", showingCrm);
 
   if (showingPersonalTasks) {
     elements.appEyebrow.textContent = "Controle pessoal";
@@ -594,6 +636,13 @@ function renderAdminView() {
     elements.appEyebrow.textContent = "Agenda Alcir";
     elements.appTitle.textContent = "Reuniões";
     renderMeetings();
+    return;
+  }
+
+  if (showingCrm) {
+    elements.appEyebrow.textContent = "Comercial";
+    elements.appTitle.textContent = "CRM de vendas";
+    renderCrm();
     return;
   }
 
@@ -621,6 +670,7 @@ function renderManagerView() {
   elements.performancePanel.classList.add("hidden");
   elements.personalTasksPanel.classList.add("hidden");
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
+  elements.crmPanel.classList.add("hidden");
   elements.requestsViewButton.classList.toggle("active-view-button", !showingMeetings);
   elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
 
@@ -762,6 +812,137 @@ function renderManagerDashboard() {
     `;
 
     elements.managerRequestList.append(item);
+  });
+}
+
+function renderCrm() {
+  if (!isAdmin()) return;
+
+  renderCrmOwnerOptions();
+  const openOpportunities = crmOpportunities.filter((item) => !["fechado", "perdido"].includes(item.status));
+  const negotiationOpportunities = crmOpportunities.filter((item) => item.status === "negociacao");
+  const wonOpportunities = crmOpportunities.filter((item) => item.status === "fechado");
+  const openAmount = openOpportunities.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const visibleOpportunities = filteredCrmOpportunities();
+
+  elements.crmMetricOpen.textContent = openOpportunities.length;
+  elements.crmMetricNegotiation.textContent = negotiationOpportunities.length;
+  elements.crmMetricWon.textContent = wonOpportunities.length;
+  elements.crmMetricAmount.textContent = formatCurrency(openAmount);
+  elements.crmCountAll.textContent = crmOpportunities.length;
+  elements.crmCountNew.textContent = crmOpportunities.filter((item) => item.status === "novo").length;
+  elements.crmCountService.textContent = crmOpportunities.filter((item) => item.status === "atendimento").length;
+  elements.crmCountNegotiation.textContent = negotiationOpportunities.length;
+  elements.crmCountWon.textContent = wonOpportunities.length;
+  elements.crmCountLost.textContent = crmOpportunities.filter((item) => item.status === "perdido").length;
+
+  elements.crmTabs.forEach((button) => {
+    button.classList.toggle("active", button.dataset.crmFilter === crmFilter);
+  });
+
+  elements.crmList.innerHTML = "";
+  elements.crmEmptyState.classList.toggle("hidden", visibleOpportunities.length > 0);
+  elements.crmEmptyState.querySelector("strong").textContent =
+    crmFilter === "todos" ? "Nenhuma oportunidade no CRM" : `Nenhuma oportunidade em ${crmStatusLabels[crmFilter]}`;
+
+  visibleOpportunities.forEach((opportunity) => {
+    const card = document.createElement("article");
+    card.className = `crm-card crm-${opportunity.status}`;
+    card.dataset.crmOpportunityId = opportunity.id;
+    const attachments = Array.isArray(opportunity.attachments) ? opportunity.attachments : [];
+    const history = Array.isArray(opportunity.history) ? opportunity.history : [];
+
+    card.innerHTML = `
+      <div class="request-title-row">
+        <div>
+          <strong>${escapeHtml(opportunity.title || opportunity.clientName)}</strong>
+          <span class="manager-request-date">Criada em ${formatDateTime(opportunity.createdAt)}</span>
+        </div>
+        <span class="status-pill ${crmStatusClasses[opportunity.status] || "status-andamento"}">
+          ${crmStatusLabels[opportunity.status] || "Novo"}
+        </span>
+      </div>
+      <div class="crm-card-grid">
+        <div><span>Cliente</span><strong>${escapeHtml(opportunity.clientName)}</strong></div>
+        <div><span>Contato</span><strong>${escapeHtml(opportunity.contactName || "Não informado")}</strong></div>
+        <div><span>WhatsApp</span><strong>${escapeHtml(formatPhone(opportunity.phone))}</strong></div>
+        <div><span>Valor</span><strong>${formatCurrency(opportunity.amount)}</strong></div>
+        <div><span>Unidade</span><strong>${unitLabel(opportunity.unit)}</strong></div>
+        <div><span>Responsável</span><strong>${escapeHtml(opportunity.ownerName || "Não definido")}</strong></div>
+      </div>
+      ${opportunity.email ? `<p class="request-description">E-mail: ${escapeHtml(opportunity.email)}</p>` : ""}
+      ${opportunity.notes ? `<p class="request-description">${escapeHtml(opportunity.notes)}</p>` : ""}
+      <div class="request-meta">
+        <span class="chip">Origem: ${escapeHtml(opportunity.source || "Cadastro manual")}</span>
+        <span class="chip">Atualizado: ${formatDateTime(opportunity.updatedAt || opportunity.createdAt)}</span>
+      </div>
+      ${attachmentsMarkup(attachments, "Orçamento anexado")}
+      <div class="crm-card-actions">
+        <label>
+          Etapa
+          <select data-crm-status="${escapeHtml(opportunity.id)}">
+            ${Object.entries(crmStatusLabels)
+              .map(([value, label]) => `<option value="${value}" ${opportunity.status === value ? "selected" : ""}>${label}</option>`)
+              .join("")}
+          </select>
+        </label>
+        <button class="ghost-button compact-button danger-action" type="button" data-delete-crm="${escapeHtml(opportunity.id)}">Excluir</button>
+      </div>
+      ${
+        history.length
+          ? `<details class="manager-history">
+              <summary>Histórico</summary>
+              <ol>${history.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}</ol>
+            </details>`
+          : ""
+      }
+    `;
+
+    elements.crmList.append(card);
+  });
+}
+
+function renderCrmOwnerOptions() {
+  if (!elements.crmOwnerInput) return;
+  const selected = elements.crmOwnerInput.value;
+  const options = users
+    .filter((user) => user.role !== "admin")
+    .sort((left, right) => String(left.name).localeCompare(String(right.name), "pt-BR"))
+    .map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.name)} · ${unitLabel(user.unit)}</option>`);
+
+  elements.crmOwnerInput.innerHTML = `<option value="">Sem responsável</option>${options.join("")}`;
+  if ([...elements.crmOwnerInput.options].some((option) => option.value === selected)) {
+    elements.crmOwnerInput.value = selected;
+  }
+}
+
+function filteredCrmOpportunities() {
+  return crmOpportunities
+    .filter((item) => crmFilter === "todos" || item.status === crmFilter)
+    .sort(compareCrmOpportunities);
+}
+
+function compareCrmOpportunities(left, right) {
+  const statusWeight = {
+    novo: 1,
+    atendimento: 2,
+    negociacao: 3,
+    fechado: 4,
+    perdido: 5,
+  };
+  const statusDiff = (statusWeight[left.status] || 99) - (statusWeight[right.status] || 99);
+  if (statusDiff !== 0) return statusDiff;
+
+  const updatedDiff = new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
+  if (updatedDiff !== 0) return updatedDiff;
+
+  return String(right.id || "").localeCompare(String(left.id || ""));
+}
+
+function formatCurrency(value) {
+  return Number(value || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
   });
 }
 
@@ -2139,6 +2320,109 @@ async function createPersonalTask(formData) {
   }
 }
 
+async function createCrmOpportunity(formData) {
+  if (!isAdmin()) return false;
+
+  const payload = new FormData();
+  ["clientName", "contactName", "phone", "email", "unit", "ownerId", "amount", "status", "title", "source", "notes"].forEach((field) => {
+    payload.set(field, formData.get(field)?.trim?.() ?? formData.get(field) ?? "");
+  });
+  await appendAttachmentsToPayload(payload, formData.getAll("crmAttachments"), "crmAttachments");
+
+  try {
+    showToast("Salvando oportunidade no CRM...");
+    const result = await apiFetch("/api/crm-opportunities", formRequest("POST", payload));
+    crmOpportunities = result.opportunities;
+    elements.crmForm.reset();
+    elements.crmForm.elements.source.value = "Cadastro manual";
+    renderAdminView();
+    showToast("Oportunidade criada no CRM.");
+    return true;
+  } catch (error) {
+    showToast(error.message);
+    return false;
+  }
+}
+
+async function updateCrmOpportunityStatus(opportunityId, status) {
+  if (!isAdmin()) return;
+
+  try {
+    const result = await apiFetch(
+      `/api/crm-opportunities/${encodeURIComponent(opportunityId)}`,
+      jsonRequest("PATCH", { status }),
+    );
+    crmOpportunities = result.opportunities;
+    renderAdminView();
+    showToast("Etapa do CRM atualizada.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function deleteCrmOpportunity(opportunityId) {
+  if (!isAdmin()) return;
+  const opportunity = crmOpportunities.find((item) => item.id === opportunityId);
+  if (!opportunity) return;
+
+  const confirmed = window.confirm(`Excluir a oportunidade "${opportunity.title || opportunity.clientName}"?`);
+  if (!confirmed) return;
+
+  try {
+    const result = await apiFetch(`/api/crm-opportunities/${encodeURIComponent(opportunityId)}`, {
+      method: "DELETE",
+    });
+    crmOpportunities = result.opportunities;
+    renderAdminView();
+    showToast("Oportunidade excluída.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function exportCrmCsv() {
+  if (!isAdmin()) return;
+
+  const header = [
+    "Cliente",
+    "Contato",
+    "WhatsApp",
+    "Email",
+    "Unidade",
+    "Responsavel",
+    "Valor",
+    "Status",
+    "Origem",
+    "Observacoes",
+  ];
+
+  const rows = filteredCrmOpportunities().map((opportunity) => [
+    opportunity.clientName,
+    opportunity.contactName,
+    opportunity.phone,
+    opportunity.email,
+    unitLabel(opportunity.unit),
+    opportunity.ownerName,
+    String(opportunity.amount || 0).replace(".", ","),
+    crmStatusLabels[opportunity.status],
+    opportunity.source,
+    opportunity.notes,
+  ]);
+
+  const csv = [header, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell || "").replaceAll('"', '""')}"`).join(","))
+    .join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `crm-vendas-${todayIso()}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+  showToast("CRM exportado.");
+}
+
 async function resolvePersonalTask(taskId, resolution) {
   if (!isAdmin()) return;
 
@@ -3007,6 +3291,7 @@ async function logout() {
   users = [];
   personalTasks = [];
   meetings = [];
+  crmOpportunities = [];
   selectedId = null;
   adminView = "requests";
   managerWorkspace = "requests";
@@ -3314,6 +3599,11 @@ function bindEvents() {
     renderManagerView();
   });
 
+  elements.crmViewButton.addEventListener("click", () => {
+    adminView = "crm";
+    renderAdminView();
+  });
+
   elements.priorityInput.addEventListener("change", () => {
     applyAdminRequestDeadline();
   });
@@ -3372,6 +3662,32 @@ function bindEvents() {
   elements.personalTaskForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await createPersonalTask(new FormData(elements.personalTaskForm));
+  });
+
+  elements.crmForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await createCrmOpportunity(new FormData(elements.crmForm));
+  });
+
+  elements.crmExportButton.addEventListener("click", exportCrmCsv);
+
+  elements.crmTabs.forEach((button) => {
+    button.addEventListener("click", () => {
+      crmFilter = button.dataset.crmFilter;
+      renderCrm();
+    });
+  });
+
+  elements.crmList.addEventListener("change", (event) => {
+    const statusSelect = event.target.closest("[data-crm-status]");
+    if (!statusSelect) return;
+    updateCrmOpportunityStatus(statusSelect.dataset.crmStatus, statusSelect.value);
+  });
+
+  elements.crmList.addEventListener("click", (event) => {
+    const deleteButton = event.target.closest("[data-delete-crm]");
+    if (!deleteButton) return;
+    deleteCrmOpportunity(deleteButton.dataset.deleteCrm);
   });
 
   elements.personalTaskTabs.forEach((button) => {
