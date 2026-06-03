@@ -138,7 +138,7 @@
               <span aria-hidden="true">C</span>
               Reuniões
             </button>
-            <button class="ghost-button" id="crm-view-button" type="button" data-admin-only>
+            <button class="ghost-button" id="crm-view-button" type="button">
               <span aria-hidden="true">$</span>
               CRM Vendas
             </button>
@@ -625,6 +625,23 @@
             </form>
 
             <div class="crm-board">
+              <div class="control-strip crm-control-strip" id="crm-admin-filters">
+                <label class="select-field">
+                  Loja
+                  <select id="crm-unit-filter">
+                    <option value="todas">Todas</option>
+                    <option value="SPZ">SPZ</option>
+                    <option value="CNP">CNP</option>
+                    <option value="CORP">CORP</option>
+                  </select>
+                </label>
+                <label class="select-field">
+                  Vendedor
+                  <select id="crm-owner-filter">
+                    <option value="todos">Todos</option>
+                  </select>
+                </label>
+              </div>
               <div class="manager-tabs crm-tabs" role="tablist" aria-label="Funil de vendas">
                 <button class="manager-tab active" type="button" data-crm-filter="todos">Todos <span id="crm-count-all">0</span></button>
                 <button class="manager-tab" type="button" data-crm-filter="novo">Novo <span id="crm-count-new">0</span></button>
@@ -837,6 +854,7 @@
             Perfil
             <select name="role" required>
               <option value="manager">Gerente</option>
+              <option value="seller">Vendedor</option>
               <option value="engineer">Engenheiro</option>
             </select>
           </label>

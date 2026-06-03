@@ -221,8 +221,7 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/crm-opportunities") {
-    requireAdmin(currentUser);
-    sendJson(response, 200, { ok: true, opportunities: sortCrmOpportunities(data.crmOpportunities) });
+    sendJson(response, 200, { ok: true, opportunities: visibleCrmOpportunities(data.crmOpportunities, currentUser) });
     return;
   }
 
@@ -234,8 +233,7 @@ async function handleApi(request, response, url) {
 
   const crmOpportunityMatch = url.pathname.match(/^\/api\/crm-opportunities\/([^/]+)$/);
   if (crmOpportunityMatch && request.method === "PATCH") {
-    requireAdmin(currentUser);
-    await handleUpdateCrmOpportunity(request, response, data, crmOpportunityMatch[1]);
+    await handleUpdateCrmOpportunity(request, response, data, currentUser, crmOpportunityMatch[1]);
     return;
   }
 
@@ -575,6 +573,7 @@ async function buildCrmOpportunity(data, body, currentUser) {
     status: normalizeCrmStatus(body.status),
     notes: cleanText(body.notes, ""),
     attachments: await sanitizeAttachments(body.crmAttachments),
+    followUps: [],
     createdBy: currentUser.id,
     createdByName: currentUser.name,
     createdAt: now,
@@ -645,7 +644,7 @@ async function handleEmailCrmWebhook(request, response, url) {
   });
 }
 
-async function handleUpdateCrmOpportunity(request, response, data, opportunityId) {
+async function handleUpdateCrmOpportunity(request, response, data, currentUser, opportunityId) {
   const body = await readRequestBody(request);
   const index = data.crmOpportunities.findIndex((item) => item.id === opportunityId);
 
@@ -655,34 +654,58 @@ async function handleUpdateCrmOpportunity(request, response, data, opportunityId
   }
 
   const previous = data.crmOpportunities[index];
+  if (!canEditCrmOpportunity(previous, currentUser)) {
+    sendJson(response, 403, { ok: false, error: "Esta venda nao esta atribuida ao seu usuario." });
+    return;
+  }
+
   const now = new Date().toISOString();
   const nextStatus = normalizeCrmStatus(body.status || previous.status);
   const newAttachments = Array.isArray(body.crmAttachments) ? await sanitizeAttachments(body.crmAttachments) : [];
   const history = Array.isArray(previous.history) ? [...previous.history] : [];
+  const feedback = cleanText(body.feedback, "");
+  const nextAction = cleanText(body.nextAction, "");
+  const nextActionDate = normalizeDateInput(body.nextActionDate, "");
 
   if (nextStatus !== previous.status) {
-    history.push(`Status alterado para ${crmStatusLabels[nextStatus]} em ${formatDateTime(now)}`);
+    history.push(`Status alterado para ${crmStatusLabels[nextStatus]} em ${formatDateTime(now)} por ${currentUser.name}`);
   }
 
   if (newAttachments.length > 0) {
-    history.push(`${newAttachments.length} anexo${newAttachments.length === 1 ? "" : "s"} adicionado${newAttachments.length === 1 ? "" : "s"} em ${formatDateTime(now)}`);
+    history.push(`${newAttachments.length} anexo${newAttachments.length === 1 ? "" : "s"} adicionado${newAttachments.length === 1 ? "" : "s"} em ${formatDateTime(now)} por ${currentUser.name}`);
+  }
+
+  const followUps = Array.isArray(previous.followUps) ? [...previous.followUps] : [];
+  if (feedback || nextAction || nextActionDate) {
+    const followUp = {
+      id: createId("followup"),
+      feedback,
+      nextAction,
+      nextActionDate,
+      createdBy: currentUser.id,
+      createdByName: currentUser.name,
+      createdAt: now,
+    };
+    followUps.unshift(followUp);
+    history.push(`Feedback registrado em ${formatDateTime(now)} por ${currentUser.name}`);
   }
 
   const opportunity = {
     ...previous,
-    title: body.title === undefined ? previous.title : cleanText(body.title, previous.title),
-    clientName: body.clientName === undefined ? previous.clientName : cleanText(body.clientName, previous.clientName),
-    contactName: body.contactName === undefined ? previous.contactName : cleanText(body.contactName, ""),
-    phone: body.phone === undefined ? previous.phone : normalizePhone(body.phone),
-    email: body.email === undefined ? previous.email : normalizeEmail(body.email),
-    unit: body.unit === undefined ? previous.unit : normalizeUnit(body.unit),
-    ownerId: body.ownerId === undefined ? previous.ownerId : cleanText(body.ownerId, ""),
-    ownerName: body.ownerId === undefined ? previous.ownerName : crmOwnerName(data.users, body.ownerId),
-    amount: body.amount === undefined ? previous.amount : normalizeMoney(body.amount),
-    source: body.source === undefined ? previous.source : cleanText(body.source, "Cadastro manual"),
+    title: currentUser.role !== "admin" || body.title === undefined ? previous.title : cleanText(body.title, previous.title),
+    clientName: currentUser.role !== "admin" || body.clientName === undefined ? previous.clientName : cleanText(body.clientName, previous.clientName),
+    contactName: currentUser.role !== "admin" || body.contactName === undefined ? previous.contactName : cleanText(body.contactName, ""),
+    phone: currentUser.role !== "admin" || body.phone === undefined ? previous.phone : normalizePhone(body.phone),
+    email: currentUser.role !== "admin" || body.email === undefined ? previous.email : normalizeEmail(body.email),
+    unit: currentUser.role !== "admin" || body.unit === undefined ? previous.unit : normalizeUnit(body.unit),
+    ownerId: currentUser.role !== "admin" || body.ownerId === undefined ? previous.ownerId : cleanText(body.ownerId, ""),
+    ownerName: currentUser.role !== "admin" || body.ownerId === undefined ? previous.ownerName : crmOwnerName(data.users, body.ownerId),
+    amount: currentUser.role !== "admin" || body.amount === undefined ? previous.amount : normalizeMoney(body.amount),
+    source: currentUser.role !== "admin" || body.source === undefined ? previous.source : cleanText(body.source, "Cadastro manual"),
     status: nextStatus,
-    notes: body.notes === undefined ? previous.notes : cleanText(body.notes, ""),
+    notes: currentUser.role !== "admin" || body.notes === undefined ? previous.notes : cleanText(body.notes, ""),
     attachments: [...(Array.isArray(previous.attachments) ? previous.attachments : []), ...newAttachments],
+    followUps,
     updatedAt: now,
     history,
   };
@@ -692,7 +715,7 @@ async function handleUpdateCrmOpportunity(request, response, data, opportunityId
   sendJson(response, 200, {
     ok: true,
     opportunity,
-    opportunities: sortCrmOpportunities(data.crmOpportunities),
+    opportunities: visibleCrmOpportunities(data.crmOpportunities, currentUser),
   });
 }
 
@@ -1102,7 +1125,7 @@ async function handleDeleteRequest(response, data, requestId) {
 async function handleAttachmentDownload(response, data, currentUser, attachmentId) {
   const match =
     findAttachmentRecord(data.requests, currentUser, attachmentId) ||
-    (currentUser.role === "admin" ? findCrmAttachmentRecord(data.crmOpportunities, attachmentId) : null);
+    findVisibleCrmAttachmentRecord(data.crmOpportunities, currentUser, attachmentId);
 
   if (!match) {
     sendJson(response, 404, { ok: false, error: "Anexo nao encontrado." });
@@ -1331,7 +1354,7 @@ function buildStatePayload(data, currentUser, request = null) {
     users: isAdmin ? publicUsers(data.users) : [],
     personalTasks: isAdmin ? sortPersonalTasks(data.personalTasks) : [],
     meetings: visibleMeetings(data.meetings, currentUser),
-    crmOpportunities: isAdmin ? sortCrmOpportunities(data.crmOpportunities) : [],
+    crmOpportunities: visibleCrmOpportunities(data.crmOpportunities, currentUser),
     emailMode: isAdmin ? emailModeStatus(request) : null,
   };
 }
@@ -1645,7 +1668,7 @@ function normalizePersonalTaskStatus(value) {
 }
 
 function normalizeUserRole(value) {
-  return ["manager", "engineer"].includes(value) ? value : "manager";
+  return ["manager", "engineer", "seller"].includes(value) ? value : "manager";
 }
 
 function normalizeRequestType(value, currentUser) {
@@ -2200,6 +2223,26 @@ function findCrmAttachmentRecord(opportunities, attachmentId) {
   return null;
 }
 
+function findVisibleCrmAttachmentRecord(opportunities, currentUser, attachmentId) {
+  for (const opportunity of opportunities) {
+    if (!canViewCrmOpportunity(opportunity, currentUser)) continue;
+    const attachments = Array.isArray(opportunity.attachments) ? opportunity.attachments : [];
+    const attachment = attachments.find((item) => item.id === attachmentId);
+    if (attachment) return { opportunity, attachment };
+  }
+
+  return null;
+}
+
+function canViewCrmOpportunity(opportunity, currentUser) {
+  if (currentUser.role === "admin") return true;
+  return currentUser.role === "seller" && opportunity.ownerId === currentUser.id;
+}
+
+function canEditCrmOpportunity(opportunity, currentUser) {
+  return canViewCrmOpportunity(opportunity, currentUser);
+}
+
 function canViewRequestAttachment(taskRequest, currentUser) {
   if (currentUser.role === "admin") return true;
   return taskRequest.createdBy === currentUser.id || taskRequest.assigneeId === currentUser.id;
@@ -2260,6 +2303,10 @@ function sortCrmOpportunities(items = []) {
 
     return String(right.id || "").localeCompare(String(left.id || ""));
   });
+}
+
+function visibleCrmOpportunities(items = [], currentUser) {
+  return sortCrmOpportunities(items.filter((opportunity) => canViewCrmOpportunity(opportunity, currentUser)));
 }
 
 function sortPersonalTasks(items) {

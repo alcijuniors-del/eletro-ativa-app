@@ -49,6 +49,7 @@ const materialListDeadlineLabels = {
 const roleLabels = {
   admin: "Administrador",
   manager: "Gerente",
+  seller: "Vendedor",
   engineer: "Engenheiro",
 };
 
@@ -140,6 +141,8 @@ let adminView = "requests";
 let personalTaskFilter = "pendentes";
 let meetingTab = "reunioes";
 let crmFilter = "todos";
+let crmUnitFilter = "todas";
+let crmOwnerFilter = "todos";
 let meetingSelectedDate = todayIso();
 let meetingCalendarDate = new Date();
 let renderedDetailId = null;
@@ -241,6 +244,9 @@ const elements = {
   crmPanel: document.querySelector("#crm-panel"),
   crmForm: document.querySelector("#crm-form"),
   crmOwnerInput: document.querySelector("#crm-owner-input"),
+  crmAdminFilters: document.querySelector("#crm-admin-filters"),
+  crmUnitFilter: document.querySelector("#crm-unit-filter"),
+  crmOwnerFilter: document.querySelector("#crm-owner-filter"),
   crmExportButton: document.querySelector("#crm-export-button"),
   crmTabs: document.querySelectorAll("[data-crm-filter]"),
   crmList: document.querySelector("#crm-list"),
@@ -630,6 +636,7 @@ function renderAdminView() {
   elements.performanceViewButton.classList.toggle("active-view-button", showingPerformance);
   elements.personalTasksButton.classList.toggle("active-view-button", showingPersonalTasks);
   elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
+  elements.crmViewButton.classList.remove("hidden");
   elements.crmViewButton.classList.toggle("active-view-button", showingCrm);
 
   if (showingPersonalTasks) {
@@ -670,21 +677,36 @@ function renderAdminView() {
 
 function renderManagerView() {
   if (isAdmin()) return;
+  if (currentUser.role === "seller") {
+    managerWorkspace = "crm";
+  }
 
   const showingMeetings = managerWorkspace === "meetings";
-  elements.managerPanel.classList.toggle("hidden", showingMeetings || currentUser.role === "engineer");
-  elements.managerHistoryPanel.classList.toggle("hidden", showingMeetings);
+  const showingCrm = managerWorkspace === "crm";
+  elements.managerPanel.classList.toggle("hidden", showingMeetings || showingCrm || currentUser.role === "engineer");
+  elements.managerHistoryPanel.classList.toggle("hidden", showingMeetings || showingCrm);
   elements.performancePanel.classList.add("hidden");
   elements.personalTasksPanel.classList.add("hidden");
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
-  elements.crmPanel.classList.add("hidden");
-  elements.requestsViewButton.classList.toggle("active-view-button", !showingMeetings);
+  elements.crmPanel.classList.toggle("hidden", !showingCrm);
+  elements.requestsViewButton.classList.toggle("hidden", currentUser.role === "seller");
+  elements.meetingsViewButton.classList.toggle("hidden", currentUser.role === "seller");
+  elements.crmViewButton.classList.toggle("hidden", currentUser.role !== "seller");
+  elements.requestsViewButton.classList.toggle("active-view-button", !showingMeetings && !showingCrm);
   elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
+  elements.crmViewButton.classList.toggle("active-view-button", showingCrm);
 
   if (showingMeetings) {
     elements.appEyebrow.textContent = "Agenda Alcir";
     elements.appTitle.textContent = "Reuniões";
     renderMeetings();
+    return;
+  }
+
+  if (showingCrm) {
+    elements.appEyebrow.textContent = "Área do vendedor";
+    elements.appTitle.textContent = "Minhas vendas";
+    renderCrm();
     return;
   }
 
@@ -823,13 +845,15 @@ function renderManagerDashboard() {
 }
 
 function renderCrm() {
-  if (!isAdmin()) return;
+  if (!isAdmin() && currentUser?.role !== "seller") return;
 
   renderCrmOwnerOptions();
   renderEmailModeStatus();
-  const openOpportunities = crmOpportunities.filter((item) => !["fechado", "perdido"].includes(item.status));
-  const negotiationOpportunities = crmOpportunities.filter((item) => item.status === "negociacao");
-  const wonOpportunities = crmOpportunities.filter((item) => item.status === "fechado");
+  renderCrmOwnerFilterOptions();
+  const scopedOpportunities = scopedCrmOpportunities();
+  const openOpportunities = scopedOpportunities.filter((item) => !["fechado", "perdido"].includes(item.status));
+  const negotiationOpportunities = scopedOpportunities.filter((item) => item.status === "negociacao");
+  const wonOpportunities = scopedOpportunities.filter((item) => item.status === "fechado");
   const openAmount = openOpportunities.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const visibleOpportunities = filteredCrmOpportunities();
 
@@ -837,12 +861,16 @@ function renderCrm() {
   elements.crmMetricNegotiation.textContent = negotiationOpportunities.length;
   elements.crmMetricWon.textContent = wonOpportunities.length;
   elements.crmMetricAmount.textContent = formatCurrency(openAmount);
-  elements.crmCountAll.textContent = crmOpportunities.length;
-  elements.crmCountNew.textContent = crmOpportunities.filter((item) => item.status === "novo").length;
-  elements.crmCountService.textContent = crmOpportunities.filter((item) => item.status === "atendimento").length;
+  elements.crmCountAll.textContent = scopedOpportunities.length;
+  elements.crmCountNew.textContent = scopedOpportunities.filter((item) => item.status === "novo").length;
+  elements.crmCountService.textContent = scopedOpportunities.filter((item) => item.status === "atendimento").length;
   elements.crmCountNegotiation.textContent = negotiationOpportunities.length;
   elements.crmCountWon.textContent = wonOpportunities.length;
-  elements.crmCountLost.textContent = crmOpportunities.filter((item) => item.status === "perdido").length;
+  elements.crmCountLost.textContent = scopedOpportunities.filter((item) => item.status === "perdido").length;
+  elements.crmForm.classList.toggle("hidden", !isAdmin());
+  elements.emailModeStatus.classList.toggle("hidden", !isAdmin());
+  elements.crmExportButton.classList.toggle("hidden", !isAdmin());
+  elements.crmAdminFilters.classList.toggle("hidden", !isAdmin());
 
   elements.crmTabs.forEach((button) => {
     button.classList.toggle("active", button.dataset.crmFilter === crmFilter);
@@ -894,8 +922,10 @@ function renderCrm() {
               .join("")}
           </select>
         </label>
-        <button class="ghost-button compact-button danger-action" type="button" data-delete-crm="${escapeHtml(opportunity.id)}">Excluir</button>
+        ${isAdmin() ? `<button class="ghost-button compact-button danger-action" type="button" data-delete-crm="${escapeHtml(opportunity.id)}">Excluir</button>` : ""}
       </div>
+      ${crmFollowUpFormMarkup(opportunity)}
+      ${crmFollowUpsMarkup(opportunity)}
       ${
         history.length
           ? `<details class="manager-history">
@@ -908,6 +938,48 @@ function renderCrm() {
 
     elements.crmList.append(card);
   });
+}
+
+function crmFollowUpFormMarkup(opportunity) {
+  if (opportunity.status === "fechado" || opportunity.status === "perdido") return "";
+  return `<form class="crm-feedback-form" data-crm-feedback-form="${escapeHtml(opportunity.id)}">
+    <label>
+      Feedback da ligação / atendimento
+      <textarea name="feedback" rows="3" required placeholder="Ex.: Liguei, cliente pediu revisão de preço, ficou de responder amanhã."></textarea>
+    </label>
+    <div class="form-grid compact-feedback-grid">
+      <label>
+        Próxima ação
+        <input name="nextAction" type="text" placeholder="Ex.: Retornar ligação" />
+      </label>
+      <label>
+        Data da próxima ação
+        <input name="nextActionDate" type="date" />
+      </label>
+    </div>
+    <div class="manager-card-actions">
+      <button class="primary-button compact-button" type="submit">Registrar feedback</button>
+    </div>
+  </form>`;
+}
+
+function crmFollowUpsMarkup(opportunity) {
+  const followUps = Array.isArray(opportunity.followUps) ? opportunity.followUps : [];
+  if (followUps.length === 0) return "";
+  return `<section class="manager-response-box">
+    <h3>Rotina comercial</h3>
+    <ol class="crm-followup-list">
+      ${followUps.map((followUp) => `<li>
+        <strong>${escapeHtml(followUp.createdByName || "Vendedor")} · ${formatDateTime(followUp.createdAt)}</strong>
+        <p>${escapeHtml(followUp.feedback || "Sem feedback informado.")}</p>
+        ${
+          followUp.nextAction || followUp.nextActionDate
+            ? `<span class="manager-request-date">Próxima ação: ${escapeHtml(followUp.nextAction || "Não informada")} ${followUp.nextActionDate ? `em ${formatDate(followUp.nextActionDate)}` : ""}</span>`
+            : ""
+        }
+      </li>`).join("")}
+    </ol>
+  </section>`;
 }
 
 function renderEmailModeStatus() {
@@ -935,10 +1007,31 @@ function renderCrmOwnerOptions() {
   }
 }
 
+function renderCrmOwnerFilterOptions() {
+  if (!elements.crmOwnerFilter) return;
+  const selected = elements.crmOwnerFilter.value || crmOwnerFilter;
+  const sellers = users
+    .filter((user) => user.role === "seller")
+    .sort((left, right) => String(left.name).localeCompare(String(right.name), "pt-BR"));
+  elements.crmOwnerFilter.innerHTML = `<option value="todos">Todos</option>${sellers
+    .map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.name)} · ${unitLabel(user.unit)}</option>`)
+    .join("")}`;
+  elements.crmOwnerFilter.value = [...elements.crmOwnerFilter.options].some((option) => option.value === selected)
+    ? selected
+    : "todos";
+  crmOwnerFilter = elements.crmOwnerFilter.value;
+}
+
 function filteredCrmOpportunities() {
-  return crmOpportunities
+  return scopedCrmOpportunities()
     .filter((item) => crmFilter === "todos" || item.status === crmFilter)
     .sort(compareCrmOpportunities);
+}
+
+function scopedCrmOpportunities() {
+  return crmOpportunities
+    .filter((item) => !isAdmin() || crmUnitFilter === "todas" || item.unit === crmUnitFilter)
+    .filter((item) => !isAdmin() || crmOwnerFilter === "todos" || item.ownerId === crmOwnerFilter);
 }
 
 function compareCrmOpportunities(left, right) {
@@ -2372,11 +2465,43 @@ async function updateCrmOpportunityStatus(opportunityId, status) {
       jsonRequest("PATCH", { status }),
     );
     crmOpportunities = result.opportunities;
-    renderAdminView();
+    renderCrmWorkspace();
     showToast("Etapa do CRM atualizada.");
   } catch (error) {
     showToast(error.message);
   }
+}
+
+async function submitCrmFeedback(form) {
+  const opportunityId = form.dataset.crmFeedbackForm;
+  const payload = {
+    feedback: form.elements.feedback.value.trim(),
+    nextAction: form.elements.nextAction.value.trim(),
+    nextActionDate: form.elements.nextActionDate.value,
+  };
+
+  if (!payload.feedback) {
+    showToast("Informe o feedback antes de registrar.");
+    return;
+  }
+
+  try {
+    const result = await apiFetch(
+      `/api/crm-opportunities/${encodeURIComponent(opportunityId)}`,
+      jsonRequest("PATCH", payload),
+    );
+    crmOpportunities = result.opportunities;
+    form.reset();
+    renderCrm();
+    showToast("Feedback registrado no orçamento.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function renderCrmWorkspace() {
+  if (isAdmin()) renderAdminView();
+  else renderManagerView();
 }
 
 async function deleteCrmOpportunity(opportunityId) {
@@ -2392,7 +2517,7 @@ async function deleteCrmOpportunity(opportunityId) {
       method: "DELETE",
     });
     crmOpportunities = result.opportunities;
-    renderAdminView();
+    renderCrmWorkspace();
     showToast("Oportunidade excluída.");
   } catch (error) {
     showToast(error.message);
@@ -3399,7 +3524,7 @@ function editUser(userId) {
   elements.userForm.elements.unit.value = unitLabel(user.unit);
   elements.userForm.elements.username.value = user.username;
   elements.userForm.elements.phone.value = user.phone || "";
-  elements.userForm.elements.role.value = user.role === "engineer" ? "engineer" : "manager";
+  elements.userForm.elements.role.value = ["engineer", "seller"].includes(user.role) ? user.role : "manager";
   elements.userForm.elements.password.value = "";
   elements.userForm.elements.password.required = false;
   elements.userForm.elements.password.placeholder = "Deixe em branco para manter";
@@ -3620,8 +3745,13 @@ function bindEvents() {
   });
 
   elements.crmViewButton.addEventListener("click", () => {
-    adminView = "crm";
-    renderAdminView();
+    if (isAdmin()) {
+      adminView = "crm";
+      renderAdminView();
+      return;
+    }
+    managerWorkspace = "crm";
+    renderManagerView();
   });
 
   elements.priorityInput.addEventListener("change", () => {
@@ -3690,6 +3820,14 @@ function bindEvents() {
   });
 
   elements.crmExportButton.addEventListener("click", exportCrmCsv);
+  elements.crmUnitFilter.addEventListener("change", (event) => {
+    crmUnitFilter = event.target.value;
+    renderCrm();
+  });
+  elements.crmOwnerFilter.addEventListener("change", (event) => {
+    crmOwnerFilter = event.target.value;
+    renderCrm();
+  });
 
   elements.crmTabs.forEach((button) => {
     button.addEventListener("click", () => {
@@ -3702,6 +3840,13 @@ function bindEvents() {
     const statusSelect = event.target.closest("[data-crm-status]");
     if (!statusSelect) return;
     updateCrmOpportunityStatus(statusSelect.dataset.crmStatus, statusSelect.value);
+  });
+
+  elements.crmList.addEventListener("submit", (event) => {
+    const form = event.target.closest("[data-crm-feedback-form]");
+    if (!form) return;
+    event.preventDefault();
+    submitCrmFeedback(form);
   });
 
   elements.crmList.addEventListener("click", (event) => {
