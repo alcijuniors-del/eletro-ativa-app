@@ -901,53 +901,62 @@ function renderCrm() {
     card.dataset.crmOpportunityId = opportunity.id;
     const attachments = Array.isArray(opportunity.attachments) ? opportunity.attachments : [];
     const history = Array.isArray(opportunity.history) ? opportunity.history : [];
+    const opportunityCode = crmOpportunityCode(opportunity);
 
     card.innerHTML = `
-      <div class="request-title-row">
-        <div>
-          <strong>${escapeHtml(opportunity.title || opportunity.clientName)}</strong>
-          <span class="manager-request-date">Criada em ${formatDateTime(opportunity.createdAt)}</span>
+      <div class="crm-card-summary">
+        <div class="crm-card-main">
+          <span>Orçamento</span>
+          <strong>${escapeHtml(opportunityCode)}</strong>
+          <small>${escapeHtml(opportunity.title || opportunity.clientName)}</small>
+        </div>
+        <div class="crm-card-value">
+          <span>Valor</span>
+          <strong>${formatCurrency(opportunity.amount)}</strong>
         </div>
         <span class="status-pill ${crmStatusClasses[opportunity.status] || "status-andamento"}">
           ${crmStatusLabels[opportunity.status] || "Novo"}
         </span>
       </div>
-      <div class="crm-card-grid">
-        <div><span>Cliente</span><strong>${escapeHtml(opportunity.clientName)}</strong></div>
-        <div><span>Contato</span><strong>${escapeHtml(opportunity.contactName || "Não informado")}</strong></div>
-        <div><span>WhatsApp</span><strong>${escapeHtml(formatPhone(opportunity.phone))}</strong></div>
-        <div><span>Valor</span><strong>${formatCurrency(opportunity.amount)}</strong></div>
-        ${isAdmin() ? `<div><span>Unidade</span><strong>${unitLabel(opportunity.unit)}</strong></div>` : ""}
-        ${isAdmin() ? `<div><span>Responsável</span><strong>${escapeHtml(opportunity.ownerName || "Não definido")}</strong></div>` : ""}
-      </div>
-      ${opportunity.email ? `<p class="request-description">E-mail: ${escapeHtml(opportunity.email)}</p>` : ""}
-      ${opportunity.notes ? `<p class="request-description">${escapeHtml(opportunity.notes)}</p>` : ""}
-      <div class="request-meta">
-        <span class="chip">Origem: ${escapeHtml(opportunity.source || "Cadastro manual")}</span>
-        <span class="chip">Atualizado: ${formatDateTime(opportunity.updatedAt || opportunity.createdAt)}</span>
-      </div>
-      ${attachmentsMarkup(attachments, "Orçamento anexado")}
-      <div class="crm-card-actions">
-        <label>
-          Etapa
-          <select data-crm-status="${escapeHtml(opportunity.id)}">
-            ${Object.entries(crmStatusLabels)
-              .map(([value, label]) => `<option value="${value}" ${opportunity.status === value ? "selected" : ""}>${label}</option>`)
-              .join("")}
-          </select>
-        </label>
-        ${isAdmin() ? `<button class="ghost-button compact-button danger-action" type="button" data-delete-crm="${escapeHtml(opportunity.id)}">Excluir</button>` : ""}
-      </div>
-      ${crmFollowUpFormMarkup(opportunity)}
-      ${crmFollowUpsMarkup(opportunity)}
-      ${
-        history.length
-          ? `<details class="manager-history">
-              <summary>Histórico</summary>
-              <ol>${history.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}</ol>
-            </details>`
-          : ""
-      }
+      <details class="crm-card-details">
+        <summary>Ver informações e rotina</summary>
+        <div class="crm-card-grid">
+          <div><span>Cliente</span><strong>${escapeHtml(opportunity.clientName)}</strong></div>
+          <div><span>Contato</span><strong>${escapeHtml(opportunity.contactName || "Não informado")}</strong></div>
+          <div><span>WhatsApp</span><strong>${escapeHtml(formatPhone(opportunity.phone))}</strong></div>
+          ${isAdmin() ? `<div><span>Unidade</span><strong>${unitLabel(opportunity.unit)}</strong></div>` : ""}
+          ${isAdmin() ? `<div><span>Responsável</span><strong>${escapeHtml(opportunity.ownerName || "Não definido")}</strong></div>` : ""}
+        </div>
+        ${opportunity.email ? `<p class="request-description">E-mail: ${escapeHtml(opportunity.email)}</p>` : ""}
+        ${opportunity.notes ? `<p class="request-description">${escapeHtml(opportunity.notes)}</p>` : ""}
+        <div class="request-meta">
+          <span class="chip">Origem: ${escapeHtml(opportunity.source || "Cadastro manual")}</span>
+          <span class="chip">Criada: ${formatDateTime(opportunity.createdAt)}</span>
+          <span class="chip">Atualizado: ${formatDateTime(opportunity.updatedAt || opportunity.createdAt)}</span>
+        </div>
+        ${attachmentsMarkup(attachments, "Orçamento anexado")}
+        <div class="crm-card-actions">
+          <label>
+            Etapa
+            <select data-crm-status="${escapeHtml(opportunity.id)}">
+              ${Object.entries(crmStatusLabels)
+                .map(([value, label]) => `<option value="${value}" ${opportunity.status === value ? "selected" : ""}>${label}</option>`)
+                .join("")}
+            </select>
+          </label>
+          ${isAdmin() ? `<button class="ghost-button compact-button danger-action" type="button" data-delete-crm="${escapeHtml(opportunity.id)}">Excluir</button>` : ""}
+        </div>
+        ${crmFollowUpFormMarkup(opportunity)}
+        ${crmFollowUpsMarkup(opportunity)}
+        ${
+          history.length
+            ? `<details class="manager-history">
+                <summary>Histórico</summary>
+                <ol>${history.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}</ol>
+              </details>`
+            : ""
+        }
+      </details>
     `;
 
     elements.crmList.append(card);
@@ -968,6 +977,14 @@ function sellerPerformanceFromOpportunities(items) {
     conversion,
     rating: conversionRating(conversion),
   };
+}
+
+function crmOpportunityCode(opportunity) {
+  const title = String(opportunity.title || "");
+  const match = title.match(/\b(?:orc(?:amento)?|orçamento|orcamento)\s*[-#:º]?\s*([a-z0-9-]*\d[a-z0-9-]*)/i);
+  if (match?.[1]) return `ORC ${match[1].toUpperCase()}`;
+  const idPart = String(opportunity.id || "").split("-").pop()?.slice(0, 6).toUpperCase();
+  return idPart ? `ORC ${idPart}` : "ORC";
 }
 
 function conversionRating(conversion) {

@@ -423,23 +423,23 @@ button {
 
 .workspace {
   display: grid;
-  gap: 18px;
+  gap: 12px;
   align-content: start;
-  padding: 28px;
+  padding: 20px;
 }
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background:
     linear-gradient(120deg, rgba(255, 122, 24, 0.13), transparent 34%),
     linear-gradient(280deg, rgba(155, 57, 255, 0.22), transparent 42%),
     rgba(18, 15, 24, 0.86);
-  padding: 18px;
+  padding: 14px;
 }
 
 .eyebrow {
@@ -500,11 +500,11 @@ h3 {
 .primary-button,
 .ghost-button {
   display: inline-flex;
-  min-height: 42px;
+  min-height: 36px;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 8px 12px;
 }
 
 .primary-button {
@@ -567,24 +567,24 @@ h3 {
 .metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .metric {
-  min-height: 92px;
+  min-height: 76px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.06), transparent),
     var(--surface);
-  padding: 16px;
+  padding: 12px;
 }
 
 .metric strong {
   display: block;
-  margin-top: 10px;
+  margin-top: 6px;
   color: #fff;
-  font-size: 1.9rem;
+  font-size: 1.55rem;
   line-height: 1;
 }
 
@@ -623,7 +623,7 @@ h3 {
 .control-strip {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) 180px 180px;
-  gap: 12px;
+  gap: 10px;
   align-items: end;
 }
 
@@ -632,7 +632,7 @@ h3 {
 .request-form label,
 .response-box {
   display: grid;
-  gap: 7px;
+  gap: 5px;
 }
 
 .search-field {
@@ -1361,17 +1361,17 @@ textarea:focus {
 }
 
 .seller-crm-panel .manager-submit-header {
-  min-height: 128px;
+  min-height: 92px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.055), transparent 44%),
     rgba(255, 255, 255, 0.03);
-  padding: 22px 24px;
+  padding: 18px 20px;
 }
 
 .seller-crm-panel .manager-submit-header h2 {
-  font-size: clamp(2.2rem, 5vw, 4.4rem);
+  font-size: clamp(2rem, 4vw, 3.4rem);
   line-height: 0.95;
 }
 
@@ -1381,12 +1381,12 @@ textarea:focus {
 
 .seller-crm-panel .crm-board {
   display: grid;
-  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 12px;
 }
 
 .seller-crm-panel .crm-metrics {
-  margin-left: calc(320px + 16px);
+  margin-left: calc(280px + 12px);
 }
 
 .personal-task-form,
@@ -1433,14 +1433,14 @@ textarea:focus {
 .seller-crm-panel .crm-tabs {
   display: grid;
   align-content: start;
-  gap: 12px;
-  min-height: 520px;
+  gap: 8px;
+  min-height: 420px;
   border: 1px solid rgba(195, 108, 255, 0.28);
   border-radius: 8px;
   background:
     linear-gradient(135deg, rgba(70, 183, 255, 0.1), transparent 42%),
     rgba(255, 255, 255, 0.04);
-  padding: 28px 20px;
+  padding: 18px 14px;
 }
 
 .seller-crm-panel .crm-tabs::before {
@@ -1454,10 +1454,10 @@ textarea:focus {
 }
 
 .seller-crm-panel .crm-tabs .manager-tab {
-  min-height: 70px;
+  min-height: 54px;
   justify-content: space-between;
   border-radius: 8px;
-  padding: 16px 18px;
+  padding: 12px 14px;
   text-transform: uppercase;
 }
 
@@ -1524,14 +1524,76 @@ textarea:focus {
 .personal-task-card,
 .crm-card {
   display: grid;
-  gap: 12px;
+  gap: 8px;
   border: 1px solid var(--line);
   border-left: 5px solid var(--orange);
   border-radius: 8px;
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.055), transparent),
     rgba(14, 12, 20, 0.82);
-  padding: 14px;
+  padding: 10px;
+}
+
+.crm-card-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(118px, auto) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.crm-card-main,
+.crm-card-value {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.crm-card-main span,
+.crm-card-value span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.crm-card-main strong {
+  overflow: hidden;
+  color: #fff;
+  font-size: 1rem;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crm-card-main small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crm-card-value strong {
+  color: #fff;
+  font-size: 1rem;
+  line-height: 1.1;
+}
+
+.crm-card-details {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.crm-card-details summary {
+  cursor: pointer;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.crm-card-details[open] summary {
+  margin-bottom: 10px;
 }
 
 .personal-task-card.overdue {
@@ -1566,15 +1628,11 @@ textarea:focus {
 }
 
 .seller-crm-panel .crm-card {
-  max-width: 540px;
+  max-width: 620px;
 }
 
 .seller-crm-panel .crm-card-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.seller-crm-panel .crm-card-grid div:nth-child(n + 5) {
-  display: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .crm-card-grid div {
@@ -1671,7 +1729,7 @@ textarea:focus {
 
 .requests-panel,
 .detail-panel {
-  min-height: 520px;
+  min-height: 460px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -1679,13 +1737,13 @@ textarea:focus {
 }
 
 .requests-panel {
-  padding: 14px;
+  padding: 10px;
 }
 
 .detail-panel {
   position: sticky;
-  top: 28px;
-  padding: 18px;
+  top: 20px;
+  padding: 14px;
 }
 
 .panel-heading,
@@ -1709,12 +1767,12 @@ textarea:focus {
 
 .request-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .request-card {
   display: grid;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
   border: 1px solid var(--line);
   border-left: 5px solid var(--blue);
@@ -1723,7 +1781,7 @@ textarea:focus {
     linear-gradient(145deg, rgba(255, 255, 255, 0.06), transparent),
     rgba(14, 12, 20, 0.82);
   color: var(--ink);
-  padding: 14px;
+  padding: 10px;
   text-align: left;
 }
 
@@ -2002,14 +2060,14 @@ textarea:focus {
 
 .request-form {
   display: grid;
-  gap: 18px;
-  padding: 22px;
+  gap: 12px;
+  padding: 16px;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 10px;
 }
 
 .form-wide {
