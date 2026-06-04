@@ -3805,6 +3805,14 @@ function bindEvents() {
   elements.requestsViewButton.addEventListener("click", () => {
     if (isAdmin()) {
       adminView = "requests";
+      currentStatus = "todas";
+      priorityFilter = "todas";
+      searchTerm = "";
+      elements.searchInput.value = "";
+      elements.priorityFilter.value = "todas";
+      elements.navItems.forEach((item) => {
+        item.classList.toggle("active", item.dataset.status === "todas");
+      });
       renderAdminView();
       return;
     }
