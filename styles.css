@@ -731,7 +731,8 @@ textarea:focus {
 .performance-panel,
 .personal-tasks-panel,
 .meetings-panel,
-.crm-panel {
+.crm-panel,
+.signature-panel {
   display: grid;
   gap: 18px;
   max-width: 1040px;
@@ -780,6 +781,13 @@ textarea:focus {
     var(--surface);
 }
 
+.signature-panel {
+  background:
+    linear-gradient(140deg, rgba(155, 57, 255, 0.18), transparent 34%),
+    linear-gradient(320deg, rgba(255, 211, 61, 0.12), transparent 42%),
+    var(--surface);
+}
+
 .email-mode-status {
   display: flex;
   align-items: center;
@@ -819,6 +827,84 @@ textarea:focus {
 
 .email-mode-disabled {
   border-color: rgba(255, 92, 92, 0.34);
+}
+
+.signature-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.94fr) minmax(320px, 1.06fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.signature-form,
+.signature-list-panel,
+.signature-pad-card,
+.signature-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.signature-form {
+  padding: 14px;
+}
+
+.signature-pad-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.signature-pad {
+  width: 100%;
+  min-height: 168px;
+  border: 1px solid rgba(195, 108, 255, 0.42);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(155, 57, 255, 0.14), rgba(0, 0, 0, 0.18)),
+    #120d19;
+  touch-action: none;
+}
+
+.signature-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.signature-list-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.signature-list {
+  display: grid;
+  gap: 10px;
+}
+
+.signature-card {
+  display: grid;
+  gap: 12px;
+  border-left: 5px solid var(--yellow);
+  padding: 12px;
+}
+
+.signature-preview-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.signature-preview {
+  width: 100%;
+  min-height: 116px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #120d19;
+  object-fit: contain;
+  padding: 10px;
 }
 
 .manager-submit-header {
@@ -2183,7 +2269,9 @@ textarea:focus {
   }
 
   .personal-tasks-layout,
-  .crm-layout {
+  .crm-layout,
+  .signature-layout,
+  .signature-preview-row {
     grid-template-columns: 1fr;
   }
 

@@ -231,6 +231,25 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/signatures") {
+    requireAdmin(currentUser);
+    sendJson(response, 200, { ok: true, signatures: sortSignatureRecords(data.signatureRecords) });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/signatures") {
+    requireAdmin(currentUser);
+    await handleCreateSignature(request, response, data, currentUser);
+    return;
+  }
+
+  const signatureMatch = url.pathname.match(/^\/api\/signatures\/([^/]+)$/);
+  if (signatureMatch && request.method === "DELETE") {
+    requireAdmin(currentUser);
+    await handleDeleteSignature(response, data, signatureMatch[1]);
+    return;
+  }
+
   const crmOpportunityMatch = url.pathname.match(/^\/api\/crm-opportunities\/([^/]+)$/);
   if (crmOpportunityMatch && request.method === "PATCH") {
     await handleUpdateCrmOpportunity(request, response, data, currentUser, crmOpportunityMatch[1]);
@@ -550,6 +569,56 @@ async function handleCreateCrmOpportunity(request, response, data, currentUser) 
     opportunity,
     opportunities: sortCrmOpportunities(data.crmOpportunities),
   });
+}
+
+async function handleCreateSignature(request, response, data, currentUser) {
+  const body = await readRequestBody(request);
+  const now = new Date().toISOString();
+  const documentAttachment = Array.isArray(body.signatureDocument) ? body.signatureDocument[0] : null;
+
+  if (!documentAttachment) {
+    sendJson(response, 400, { ok: false, error: "Anexe o documento que sera assinado." });
+    return;
+  }
+
+  const signerName = cleanText(body.signerName, "ALCI JR.").slice(0, 80);
+  const documentName = cleanText(body.documentName, documentAttachment.name || "Documento assinado").slice(0, 160);
+  const signatureDataUrl = sanitizeSignatureDataUrl(body.signatureDataUrl);
+
+  const signatureRecord = {
+    id: createId("signature"),
+    signerName,
+    documentName,
+    documentAttachment,
+    signatureDataUrl,
+    signedBy: currentUser.id,
+    signedByName: currentUser.name,
+    signedAt: now,
+    createdAt: now,
+  };
+
+  data.signatureRecords = [signatureRecord, ...data.signatureRecords];
+  await writeData(data);
+  sendJson(response, 201, {
+    ok: true,
+    signature: signatureRecord,
+    signatures: sortSignatureRecords(data.signatureRecords),
+  });
+}
+
+async function handleDeleteSignature(response, data, signatureId) {
+  const signatureToDelete = data.signatureRecords.find((item) => item.id === signatureId);
+  const before = data.signatureRecords.length;
+  data.signatureRecords = data.signatureRecords.filter((item) => item.id !== signatureId);
+
+  if (data.signatureRecords.length === before) {
+    sendJson(response, 404, { ok: false, error: "Assinatura nao encontrada." });
+    return;
+  }
+
+  await deleteStoredAttachments(signatureToDelete);
+  await writeData(data);
+  sendJson(response, 200, { ok: true, signatures: sortSignatureRecords(data.signatureRecords) });
 }
 
 async function buildCrmOpportunity(data, body, currentUser) {
@@ -1048,13 +1117,18 @@ async function handleUpdateRequest(request, response, data, currentUser, request
   }
 
   const previous = data.requests[index];
-  if (!canRespondToRequest(previous, currentUser)) {
+  const nextStatus = normalizeStatus(body.status || previous.status);
+  const isAdminReopening =
+    currentUser.role === "admin" &&
+    previous.status === "resolvida" &&
+    ["andamento", "nova"].includes(nextStatus);
+
+  if (!canRespondToRequest(previous, currentUser) && !isAdminReopening) {
     sendJson(response, 403, { ok: false, error: "Esta solicitacao nao esta atribuida ao seu usuario." });
     return;
   }
 
   const now = new Date().toISOString();
-  const nextStatus = normalizeStatus(body.status || previous.status);
   const responseText =
     body.response === undefined ? previous.response : cleanText(body.response, previous.response);
   const newResponseAttachments = Array.isArray(body.responseAttachments)
@@ -1063,7 +1137,11 @@ async function handleUpdateRequest(request, response, data, currentUser, request
   const history = [...previous.history];
 
   if (nextStatus === "andamento" && previous.status !== "andamento") {
-    history.push(`Marcada como em andamento em ${formatDateTime(now)} por ${currentUser.name}`);
+    history.push(
+      isAdminReopening
+        ? `Solicitacao reaberta como nao resolvida em ${formatDateTime(now)} por ${currentUser.name}`
+        : `Marcada como em andamento em ${formatDateTime(now)} por ${currentUser.name}`,
+    );
   }
 
   if (nextStatus === "resolvida") {
@@ -1125,7 +1203,8 @@ async function handleDeleteRequest(response, data, requestId) {
 async function handleAttachmentDownload(response, data, currentUser, attachmentId) {
   const match =
     findAttachmentRecord(data.requests, currentUser, attachmentId) ||
-    findVisibleCrmAttachmentRecord(data.crmOpportunities, currentUser, attachmentId);
+    findVisibleCrmAttachmentRecord(data.crmOpportunities, currentUser, attachmentId) ||
+    findSignatureAttachmentRecord(data.signatureRecords, currentUser, attachmentId);
 
   if (!match) {
     sendJson(response, 404, { ok: false, error: "Anexo nao encontrado." });
@@ -1357,6 +1436,7 @@ function buildStatePayload(data, currentUser, request = null) {
     personalTasks: isAdmin ? sortPersonalTasks(data.personalTasks) : [],
     meetings: visibleMeetings(data.meetings, currentUser),
     crmOpportunities: visibleCrmOpportunities(data.crmOpportunities, currentUser),
+    signatureRecords: isAdmin ? sortSignatureRecords(data.signatureRecords) : [],
     emailMode: isAdmin ? emailModeStatus(request) : null,
   };
 }
@@ -1389,6 +1469,7 @@ async function readData() {
     meetings: Array.isArray(parsed.meetings) ? parsed.meetings : [],
     crmOpportunities: Array.isArray(parsed.crmOpportunities) ? parsed.crmOpportunities : [],
     crmEmailImports: Array.isArray(parsed.crmEmailImports) ? parsed.crmEmailImports : [],
+    signatureRecords: Array.isArray(parsed.signatureRecords) ? parsed.signatureRecords : [],
   };
   const migrated = await migrateLegacyAttachments(data.requests);
   const migratedHighPriorityDueDates = migrateHighPriorityDueDates(data.requests);
@@ -1519,6 +1600,7 @@ async function ensureDataFile() {
     meetings: [],
     crmOpportunities: [],
     crmEmailImports: [],
+    signatureRecords: [],
   };
 
   await writeData(initialData);
@@ -1982,6 +2064,36 @@ async function sanitizeAttachments(value = []) {
   return attachments.filter(Boolean);
 }
 
+function sanitizeSignatureDataUrl(value = "") {
+  const dataUrl = String(value || "").trim();
+  if (!dataUrl) {
+    const error = new Error("Assinatura nao informada.");
+    error.status = 400;
+    throw error;
+  }
+
+  if (dataUrl.length > MAX_ATTACHMENT_DATA_LENGTH) {
+    const error = new Error("Assinatura muito grande. Limpe e assine novamente.");
+    error.status = 400;
+    throw error;
+  }
+
+  if (!/^data:image\/(png|jpe?g|webp);base64,[a-z0-9+/=]+$/i.test(dataUrl)) {
+    const error = new Error("Assinatura invalida.");
+    error.status = 400;
+    throw error;
+  }
+
+  const decoded = decodeDataUrl(dataUrl);
+  if (!decoded || !decoded.mimeType.startsWith("image/")) {
+    const error = new Error("Assinatura invalida.");
+    error.status = 400;
+    throw error;
+  }
+
+  return dataUrl;
+}
+
 async function storeUploadedAttachments(files = []) {
   if (!Array.isArray(files)) return [];
   if (files.length > MAX_ATTACHMENTS_PER_FIELD) {
@@ -2237,6 +2349,17 @@ function findVisibleCrmAttachmentRecord(opportunities, currentUser, attachmentId
   return null;
 }
 
+function findSignatureAttachmentRecord(signatureRecords, currentUser, attachmentId) {
+  if (currentUser.role !== "admin") return null;
+
+  for (const signature of signatureRecords) {
+    const attachment = signature.documentAttachment;
+    if (attachment?.id === attachmentId) return { signature, attachment };
+  }
+
+  return null;
+}
+
 function canViewCrmOpportunity(opportunity, currentUser) {
   if (currentUser.role === "admin") return true;
   return currentUser.role === "seller" && opportunity.ownerId === currentUser.id;
@@ -2263,6 +2386,7 @@ async function deleteStoredAttachments(taskRequest) {
   const attachments = [
     ...(Array.isArray(taskRequest?.attachments) ? taskRequest.attachments : []),
     ...(Array.isArray(taskRequest?.responseAttachments) ? taskRequest.responseAttachments : []),
+    ...(taskRequest?.documentAttachment ? [taskRequest.documentAttachment] : []),
   ];
   const allowedRoot = path.resolve(UPLOAD_DIR);
 
@@ -2303,6 +2427,15 @@ function sortCrmOpportunities(items = []) {
 
     const updatedDiff = new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
     if (updatedDiff !== 0) return updatedDiff;
+
+    return String(right.id || "").localeCompare(String(left.id || ""));
+  });
+}
+
+function sortSignatureRecords(items = []) {
+  return [...items].sort((left, right) => {
+    const dateDiff = new Date(right.signedAt || right.createdAt || 0) - new Date(left.signedAt || left.createdAt || 0);
+    if (dateDiff !== 0) return dateDiff;
 
     return String(right.id || "").localeCompare(String(left.id || ""));
   });
@@ -2601,6 +2734,7 @@ async function readMultipartBody(request, contentType) {
     attachments: await storeUploadedAttachments(files.attachments || []),
     responseAttachments: await storeUploadedAttachments(files.responseAttachments || []),
     crmAttachments: await storeUploadedAttachments(files.crmAttachments || []),
+    signatureDocument: await storeUploadedAttachments(files.signatureDocument || []),
   };
 }
 

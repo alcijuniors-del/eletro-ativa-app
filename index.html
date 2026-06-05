@@ -143,6 +143,10 @@
               <span aria-hidden="true">$</span>
               CRM Vendas
             </button>
+            <button class="ghost-button" id="signature-view-button" type="button" data-admin-only>
+              <span aria-hidden="true">A</span>
+              Assinatura
+            </button>
             <button class="ghost-button" id="users-button" type="button" data-admin-only>
               <span aria-hidden="true">U</span>
               Usuários
@@ -218,6 +222,67 @@
           <div class="select-field fixed-order-field">
             Ordem
             <span class="fixed-order-label">Prioridade + postagem</span>
+          </div>
+        </section>
+
+        <section class="signature-panel hidden" id="signature-panel" data-admin-only aria-label="Assinatura eletrônica">
+          <div class="manager-submit-header">
+            <div>
+              <p class="eyebrow">Assinatura eletrônica</p>
+              <h2>Documentos assinados por ALCI JR.</h2>
+            </div>
+            <span class="status-pill status-resolvida" id="signature-count">0 documentos</span>
+          </div>
+
+          <div class="signature-layout">
+            <form class="request-form signature-form" id="signature-form">
+              <div class="form-grid">
+                <label>
+                  Nome do assinante
+                  <input name="signerName" type="text" value="ALCI JR." required />
+                </label>
+                <label>
+                  Nome do documento
+                  <input name="documentName" type="text" required placeholder="Ex.: Contrato, autorização, orçamento" />
+                </label>
+                <label class="form-wide file-field">
+                  Documento para assinar
+                  <input name="signatureDocument" type="file" accept="image/*,application/pdf" required />
+                  <span class="input-hint">Anexe o PDF ou imagem do documento original. Até 4 MB para PDF.</span>
+                </label>
+              </div>
+
+              <div class="signature-pad-card">
+                <div class="panel-heading">
+                  <h3>Assinatura</h3>
+                  <span>Desenhe no quadro ou use a assinatura automática ALCI JR.</span>
+                </div>
+                <canvas class="signature-pad" id="signature-pad" width="760" height="240" aria-label="Quadro para assinatura"></canvas>
+                <div class="signature-actions">
+                  <button class="ghost-button compact-button" id="clear-signature-button" type="button">Limpar</button>
+                  <button class="ghost-button compact-button" id="typed-signature-button" type="button">Usar ALCI JR.</button>
+                </div>
+              </div>
+
+              <div class="manager-card-actions">
+                <button class="primary-button" type="submit">
+                  <span aria-hidden="true">✓</span>
+                  Salvar assinatura
+                </button>
+              </div>
+            </form>
+
+            <div class="signature-list-panel">
+              <div class="panel-heading">
+                <h3>Histórico</h3>
+                <span>Documentos assinados no sistema</span>
+              </div>
+              <div class="signature-list" id="signature-list"></div>
+              <div class="empty-state hidden" id="signature-empty-state">
+                <strong>Nenhum documento assinado</strong>
+                <span>Ao salvar a primeira assinatura, ela aparece aqui com comprovante em PDF.</span>
+              </div>
+            </div>
           </div>
         </section>
 

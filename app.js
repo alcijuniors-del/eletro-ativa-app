@@ -129,6 +129,7 @@ let users = [];
 let personalTasks = [];
 let meetings = [];
 let crmOpportunities = [];
+let signatureRecords = [];
 let emailMode = null;
 let currentUser = null;
 let selectedId = null;
@@ -148,6 +149,8 @@ let meetingCalendarDate = new Date();
 let renderedDetailId = null;
 let toastTimeout;
 let stateRefreshTimer;
+let signaturePadTouched = false;
+let signaturePadDrawing = false;
 
 const elements = {
   loginScreen: document.querySelector("#login-screen"),
@@ -170,6 +173,7 @@ const elements = {
   personalTasksButton: document.querySelector("#personal-tasks-button"),
   meetingsViewButton: document.querySelector("#meetings-view-button"),
   crmViewButton: document.querySelector("#crm-view-button"),
+  signatureViewButton: document.querySelector("#signature-view-button"),
   navItems: document.querySelectorAll(".nav-item"),
   requestList: document.querySelector("#request-list"),
   emptyState: document.querySelector("#empty-state"),
@@ -264,6 +268,14 @@ const elements = {
   emailModeStatus: document.querySelector("#email-mode-status"),
   emailModeText: document.querySelector("#email-mode-text"),
   emailModeUrl: document.querySelector("#email-mode-url"),
+  signaturePanel: document.querySelector("#signature-panel"),
+  signatureForm: document.querySelector("#signature-form"),
+  signaturePad: document.querySelector("#signature-pad"),
+  clearSignatureButton: document.querySelector("#clear-signature-button"),
+  typedSignatureButton: document.querySelector("#typed-signature-button"),
+  signatureList: document.querySelector("#signature-list"),
+  signatureEmptyState: document.querySelector("#signature-empty-state"),
+  signatureCount: document.querySelector("#signature-count"),
   crmCountAll: document.querySelector("#crm-count-all"),
   crmCountNew: document.querySelector("#crm-count-new"),
   crmCountService: document.querySelector("#crm-count-service"),
@@ -337,6 +349,7 @@ async function loadSession() {
     personalTasks = [];
     meetings = [];
     crmOpportunities = [];
+    signatureRecords = [];
     emailMode = null;
     selectedId = null;
   }
@@ -359,6 +372,7 @@ function applyState(payload) {
   personalTasks = Array.isArray(payload.personalTasks) ? payload.personalTasks : personalTasks;
   meetings = Array.isArray(payload.meetings) ? payload.meetings : meetings;
   crmOpportunities = Array.isArray(payload.crmOpportunities) ? payload.crmOpportunities : crmOpportunities;
+  signatureRecords = Array.isArray(payload.signatureRecords) ? payload.signatureRecords : signatureRecords;
   emailMode = payload.emailMode ?? emailMode;
 
   if (!requests.some((request) => request.id === selectedId)) {
@@ -385,6 +399,7 @@ async function apiFetch(path, options = {}) {
       personalTasks = [];
       meetings = [];
       crmOpportunities = [];
+      signatureRecords = [];
       emailMode = null;
       renderAuth();
     }
@@ -630,6 +645,7 @@ function renderAdminView() {
   const showingPersonalTasks = adminView === "personal";
   const showingMeetings = adminView === "meetings";
   const showingCrm = adminView === "crm";
+  const showingSignatures = adminView === "signatures";
   elements.requestsAdminView.forEach((element) => {
     element.classList.toggle("hidden", !showingRequests);
   });
@@ -639,6 +655,7 @@ function renderAdminView() {
   elements.personalTasksPanel.classList.toggle("hidden", !showingPersonalTasks);
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
   elements.crmPanel.classList.toggle("hidden", !showingCrm);
+  elements.signaturePanel.classList.toggle("hidden", !showingSignatures);
   elements.requestsViewButton.classList.toggle("active-view-button", adminView === "requests");
   elements.materialListsButton.classList.toggle("active-view-button", showingMaterialLists);
   elements.performanceViewButton.classList.toggle("active-view-button", showingPerformance);
@@ -646,6 +663,7 @@ function renderAdminView() {
   elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
   elements.crmViewButton.classList.remove("hidden");
   elements.crmViewButton.classList.toggle("active-view-button", showingCrm);
+  elements.signatureViewButton.classList.toggle("active-view-button", showingSignatures);
 
   if (showingPersonalTasks) {
     elements.appEyebrow.textContent = "Controle pessoal";
@@ -665,6 +683,14 @@ function renderAdminView() {
     elements.appEyebrow.textContent = "Comercial";
     elements.appTitle.textContent = "CRM de vendas";
     renderCrm();
+    return;
+  }
+
+  if (showingSignatures) {
+    elements.appEyebrow.textContent = "Assinatura eletrônica";
+    elements.appTitle.textContent = "Documentos assinados";
+    setupSignaturePad();
+    renderSignatures();
     return;
   }
 
@@ -697,6 +723,7 @@ function renderManagerView() {
   elements.personalTasksPanel.classList.add("hidden");
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
   elements.crmPanel.classList.toggle("hidden", !showingCrm);
+  elements.signaturePanel.classList.add("hidden");
   elements.requestsViewButton.classList.toggle("hidden", currentUser.role === "seller");
   elements.meetingsViewButton.classList.toggle("hidden", currentUser.role === "seller");
   elements.crmViewButton.classList.toggle("hidden", currentUser.role !== "seller");
@@ -1953,12 +1980,13 @@ function renderDetail() {
     elements.responseInput.value = request.response;
   }
   const adminCanRespond = !request.assigneeId || request.type === "manager_request";
+  const adminCanReopen = isAdmin() && request.status === "resolvida";
   elements.responseInput.disabled = !adminCanRespond;
   elements.responseAttachmentsInput.disabled = !adminCanRespond;
-  elements.startButton.disabled = request.status === "andamento" || !adminCanRespond;
+  elements.startButton.disabled = (request.status === "andamento" && !adminCanReopen) || (!adminCanRespond && !adminCanReopen);
   elements.startButton.innerHTML =
     request.status === "resolvida"
-      ? '<span aria-hidden="true">↻</span> Reabrir'
+      ? '<span aria-hidden="true">↻</span> Voltar para não resolvida'
       : '<span aria-hidden="true">↻</span> Em andamento';
   elements.resolveButton.disabled = !adminCanRespond;
   elements.resolveButton.innerHTML =
@@ -2121,6 +2149,10 @@ function findAttachment(attachmentId) {
     ];
     const match = attachments.find((attachment) => attachment.id === attachmentId);
     if (match) return match;
+  }
+
+  for (const signature of signatureRecords) {
+    if (signature.documentAttachment?.id === attachmentId) return signature.documentAttachment;
   }
 
   return null;
@@ -2931,7 +2963,12 @@ async function updateSelected(payload, successMessage) {
 }
 
 async function setStatusInProgress() {
-  await updateSelected({ status: "andamento" }, "Solicitação marcada como em andamento.");
+  const request = requests.find((item) => item.id === selectedId);
+  const message =
+    request?.status === "resolvida"
+      ? "Solicitação reaberta como não resolvida."
+      : "Solicitação marcada como em andamento.";
+  await updateSelected({ status: "andamento" }, message);
 }
 
 async function resolveSelected() {
@@ -3089,6 +3126,241 @@ async function changeOwnPassword() {
       }),
     );
     showToast("Senha alterada.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function setupSignaturePad() {
+  const canvas = elements.signaturePad;
+  if (!canvas || canvas.dataset.ready === "true") return;
+
+  canvas.dataset.ready = "true";
+  const context = canvas.getContext("2d");
+  context.lineWidth = 4;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = "#fbf7ff";
+  drawTypedSignature();
+
+  const start = (event) => {
+    signaturePadDrawing = true;
+    signaturePadTouched = true;
+    context.beginPath();
+    const point = signaturePadPoint(event, canvas);
+    context.moveTo(point.x, point.y);
+    event.preventDefault();
+  };
+
+  const move = (event) => {
+    if (!signaturePadDrawing) return;
+    const point = signaturePadPoint(event, canvas);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+    event.preventDefault();
+  };
+
+  const stop = () => {
+    signaturePadDrawing = false;
+  };
+
+  canvas.addEventListener("pointerdown", start);
+  canvas.addEventListener("pointermove", move);
+  canvas.addEventListener("pointerup", stop);
+  canvas.addEventListener("pointerleave", stop);
+  canvas.addEventListener("pointercancel", stop);
+}
+
+function signaturePadPoint(event, canvas) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (event.clientX - rect.left) * scaleX,
+    y: (event.clientY - rect.top) * scaleY,
+  };
+}
+
+function clearSignaturePad() {
+  const canvas = elements.signaturePad;
+  if (!canvas) return;
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  signaturePadTouched = false;
+}
+
+function drawTypedSignature() {
+  const canvas = elements.signaturePad;
+  if (!canvas) return;
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#fbf7ff";
+  context.font = "700 76px Georgia, serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText("ALCI JR.", canvas.width / 2, canvas.height / 2 + 2);
+  context.strokeStyle = "rgba(255, 122, 24, 0.72)";
+  context.lineWidth = 3;
+  context.beginPath();
+  context.moveTo(170, 170);
+  context.lineTo(590, 170);
+  context.stroke();
+  signaturePadTouched = true;
+}
+
+function signatureDataUrl() {
+  if (!signaturePadTouched) drawTypedSignature();
+  return elements.signaturePad.toDataURL("image/png");
+}
+
+async function createSignatureRecord(formData) {
+  if (!isAdmin()) return;
+
+  try {
+    const payload = new FormData();
+    payload.set("signerName", formData.get("signerName")?.trim() || "ALCI JR.");
+    payload.set("documentName", formData.get("documentName")?.trim() || "Documento assinado");
+    payload.set("signatureDataUrl", signatureDataUrl());
+    await appendAttachmentsToPayload(payload, formData.getAll("signatureDocument"), "signatureDocument");
+
+    const result = await apiFetch("/api/signatures", formRequest("POST", payload));
+    signatureRecords = result.signatures;
+    elements.signatureForm.reset();
+    elements.signatureForm.elements.signerName.value = "ALCI JR.";
+    resetFileFieldStates(elements.signatureForm);
+    drawTypedSignature();
+    renderSignatures();
+    showToast("Documento assinado e registrado.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function renderSignatures() {
+  if (!isAdmin()) return;
+
+  const records = Array.isArray(signatureRecords) ? signatureRecords : [];
+  elements.signatureCount.textContent = `${records.length} documento${records.length === 1 ? "" : "s"}`;
+  elements.signatureList.innerHTML = "";
+  elements.signatureEmptyState.classList.toggle("hidden", records.length > 0);
+
+  records.forEach((record) => {
+    const card = document.createElement("article");
+    card.className = "signature-card";
+    card.innerHTML = `
+      <div class="request-title-row">
+        <div>
+          <strong>${escapeHtml(record.documentName)}</strong>
+          <span class="manager-request-date">Assinado em ${formatDateTime(record.signedAt)} por ${escapeHtml(record.signerName)}</span>
+        </div>
+        <span class="status-pill status-resolvida">Assinado</span>
+      </div>
+      <div class="signature-preview-row">
+        <img class="signature-preview" src="${escapeHtml(record.signatureDataUrl)}" alt="Assinatura ${escapeHtml(record.signerName)}" />
+        <div>
+          ${attachmentMarkup(record.documentAttachment)}
+        </div>
+      </div>
+      <div class="manager-card-actions">
+        <button class="ghost-button compact-button" type="button" data-print-signature="${escapeHtml(record.id)}">Comprovante PDF</button>
+        <button class="ghost-button compact-button danger-action" type="button" data-delete-signature="${escapeHtml(record.id)}">Excluir</button>
+      </div>
+    `;
+    elements.signatureList.append(card);
+  });
+}
+
+function printSignatureCertificate(signatureId) {
+  const record = signatureRecords.find((item) => item.id === signatureId);
+  if (!record) {
+    showToast("Assinatura não encontrada.");
+    return;
+  }
+
+  const printWindow = window.open("", "_blank", "width=920,height=720");
+  if (!printWindow) {
+    showToast("Permita pop-ups para gerar o comprovante.");
+    return;
+  }
+
+  printWindow.document.write(printableSignatureHtml(record));
+  printWindow.document.close();
+  printWindow.focus();
+  window.setTimeout(() => {
+    printWindow.print();
+  }, 500);
+}
+
+function printableSignatureHtml(record) {
+  const generatedAt = new Date().toLocaleString("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+  const attachment = record.documentAttachment || {};
+
+  return `<!doctype html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8" />
+        <title>Comprovante de assinatura - ${escapeHtml(record.documentName)}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { margin: 0; background: #f4f1f8; color: #1f1728; font-family: Arial, Helvetica, sans-serif; line-height: 1.45; }
+          main { width: min(860px, calc(100vw - 32px)); margin: 24px auto; background: #fff; border: 1px solid #ddd4e8; border-radius: 8px; padding: 28px; }
+          header { display: flex; justify-content: space-between; gap: 18px; border-bottom: 3px solid #6d28d9; padding-bottom: 18px; }
+          h1, h2, p { margin-top: 0; }
+          h1 { margin-bottom: 6px; font-size: 26px; }
+          h2 { margin: 22px 0 10px; font-size: 18px; color: #4c1d95; }
+          .brand { color: #4c1d95; font-weight: 900; text-align: right; }
+          .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+          .box { border: 1px solid #ddd4e8; border-radius: 8px; background: #faf8fd; padding: 12px; }
+          .box span { display: block; color: #6d6476; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+          .box strong { display: block; margin-top: 4px; overflow-wrap: anywhere; }
+          .signature { display: grid; place-items: center; min-height: 180px; margin-top: 14px; border: 1px solid #ddd4e8; border-radius: 8px; background: #1d122b; }
+          .signature img { max-width: 90%; max-height: 160px; }
+          footer { margin-top: 24px; border-top: 1px solid #ddd4e8; padding-top: 12px; color: #6d6476; font-size: 12px; }
+          @media print { body { background: #fff; } main { width: 100%; margin: 0; border: 0; } }
+        </style>
+      </head>
+      <body>
+        <main>
+          <header>
+            <div>
+              <p>Comprovante de assinatura eletrônica interna</p>
+              <h1>${escapeHtml(record.documentName)}</h1>
+            </div>
+            <div class="brand">Eletro Ativa<br />Regional Alci Jr.</div>
+          </header>
+          <section class="meta">
+            <div class="box"><span>Assinante</span><strong>${escapeHtml(record.signerName)}</strong></div>
+            <div class="box"><span>Data da assinatura</span><strong>${formatDateTime(record.signedAt)}</strong></div>
+            <div class="box"><span>Documento</span><strong>${escapeHtml(attachment.name || record.documentName)}</strong></div>
+            <div class="box"><span>ID da assinatura</span><strong>${escapeHtml(record.id)}</strong></div>
+          </section>
+          <h2>Assinatura</h2>
+          <div class="signature">
+            <img src="${escapeHtml(record.signatureDataUrl)}" alt="Assinatura ${escapeHtml(record.signerName)}" />
+          </div>
+          <footer>
+            Documento registrado no aplicativo Eletro Ativa em ${escapeHtml(generatedAt)}. Este comprovante identifica o anexo original e a assinatura eletrônica interna realizada pelo usuário administrativo.
+          </footer>
+        </main>
+      </body>
+    </html>`;
+}
+
+async function deleteSignatureRecord(signatureId) {
+  if (!isAdmin()) return;
+
+  const record = signatureRecords.find((item) => item.id === signatureId);
+  const confirmed = window.confirm(`Excluir a assinatura "${record?.documentName || "documento"}"?`);
+  if (!confirmed) return;
+
+  try {
+    const result = await apiFetch(`/api/signatures/${encodeURIComponent(signatureId)}`, { method: "DELETE" });
+    signatureRecords = result.signatures;
+    renderSignatures();
+    showToast("Assinatura excluída.");
   } catch (error) {
     showToast(error.message);
   }
@@ -3533,6 +3805,7 @@ async function logout() {
   personalTasks = [];
   meetings = [];
   crmOpportunities = [];
+  signatureRecords = [];
   emailMode = null;
   selectedId = null;
   adminView = "requests";
@@ -3861,6 +4134,11 @@ function bindEvents() {
     renderManagerView();
   });
 
+  elements.signatureViewButton.addEventListener("click", () => {
+    adminView = "signatures";
+    renderAdminView();
+  });
+
   elements.priorityInput.addEventListener("change", () => {
     applyAdminRequestDeadline();
   });
@@ -3924,6 +4202,24 @@ function bindEvents() {
   elements.crmForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await createCrmOpportunity(new FormData(elements.crmForm));
+  });
+
+  elements.signatureForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await createSignatureRecord(new FormData(elements.signatureForm));
+  });
+  elements.clearSignatureButton.addEventListener("click", clearSignaturePad);
+  elements.typedSignatureButton.addEventListener("click", drawTypedSignature);
+  elements.signatureList.addEventListener("click", (event) => {
+    const printButton = event.target.closest("[data-print-signature]");
+    if (printButton) {
+      printSignatureCertificate(printButton.dataset.printSignature);
+      return;
+    }
+
+    const deleteButton = event.target.closest("[data-delete-signature]");
+    if (!deleteButton) return;
+    deleteSignatureRecord(deleteButton.dataset.deleteSignature);
   });
 
   elements.crmExportButton.addEventListener("click", exportCrmCsv);
