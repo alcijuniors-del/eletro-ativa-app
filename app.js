@@ -305,6 +305,7 @@ const elements = {
   separationPanel: document.querySelector("#separation-panel"),
   separationForm: document.querySelector("#separation-form"),
   separationRequestType: document.querySelector("#separation-request-type"),
+  separationPdfStatus: document.querySelector("#separation-pdf-status"),
   separationTitle: document.querySelector("#separation-title"),
   separationCount: document.querySelector("#separation-count"),
   separationSummary: document.querySelector("#separation-summary"),
@@ -2403,6 +2404,9 @@ function bindFileUploadEvents() {
     const input = uploadInputFromTarget(event.target);
     if (!input) return;
     updateFileFieldState(input);
+    if (input.name === "separationPdf") {
+      previewSeparationPdf(input);
+    }
   });
 
   document.addEventListener("dragenter", handleUploadDrag);
@@ -3813,7 +3817,6 @@ function renderSeparationMetrics(records) {
 }
 
 function separationCardMarkup(record) {
-  const products = Array.isArray(record.products) ? record.products : [];
   const history = Array.isArray(record.history) ? record.history : [];
   const canEdit = canEditSeparation(record);
   return `
@@ -3832,14 +3835,6 @@ function separationCardMarkup(record) {
     </div>
     <p class="request-description">${escapeHtml(record.observation || record.aiObservations || "Sem observação.")}</p>
     ${record.urgentJustification ? `<p class="request-description"><strong>Prazo menor que 3 dias:</strong> ${escapeHtml(record.urgentJustification)} · Aprovação líder: ${escapeHtml(record.leaderApprovalStatus)}</p>` : ""}
-    ${products.length ? `
-      <details class="compact-details">
-        <summary>Produtos lidos pela IA (${products.length})</summary>
-        <div class="separation-products">
-          ${products.slice(0, 12).map((item) => `<span>${escapeHtml(item.code)} · ${escapeHtml(item.quantity)} · ${escapeHtml(item.description)}</span>`).join("")}
-        </div>
-      </details>
-    ` : '<p class="muted-line">IA não identificou produtos estruturados neste PDF.</p>'}
     <div class="hiring-attachments">
       ${attachmentsMarkup(record.pdfAttachment ? [record.pdfAttachment] : [], "PDF do orçamento")}
       ${attachmentsMarkup(record.invoiceAttachment ? [record.invoiceAttachment] : [], "NF anexada")}
@@ -3901,7 +3896,7 @@ function separationUpdateFormMarkup(record) {
 async function createSeparationRequest(formData) {
   try {
     const payload = new FormData();
-    ["customerName", "store", "requestType", "observation", "priority", "desiredDate", "desiredDeliveryAt", "urgentJustification"].forEach((field) => {
+    ["customerName", "budgetNumber", "totalValue", "store", "requestType", "observation", "priority", "desiredDate", "desiredDeliveryAt", "urgentJustification"].forEach((field) => {
       payload.set(field, formData.get(field)?.trim() || "");
     });
     await appendAttachmentsToPayload(payload, formData.getAll("separationPdf"), "separationPdf");
@@ -3913,6 +3908,46 @@ async function createSeparationRequest(formData) {
     showToast("Solicitação de separação enviada.");
   } catch (error) {
     showToast(error.message);
+  }
+}
+
+async function previewSeparationPdf(input) {
+  const file = input.files?.[0];
+  if (!file || !elements.separationForm) return;
+
+  const setStatus = (message) => {
+    if (elements.separationPdfStatus) elements.separationPdfStatus.textContent = message;
+  };
+
+  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+    setStatus("Anexe um PDF válido para leitura automática.");
+    return;
+  }
+
+  setStatus("Lendo PDF...");
+
+  try {
+    const payload = new FormData();
+    await appendAttachmentsToPayload(payload, [file], "separationPdf");
+    const result = await apiFetch("/api/separations/preview-pdf", formRequest("POST", payload));
+    const fields = result.fields || {};
+    const form = elements.separationForm;
+
+    if (fields.customerName && !form.elements.customerName.value.trim()) {
+      form.elements.customerName.value = fields.customerName;
+    }
+    if (fields.budgetNumber && form.elements.budgetNumber) {
+      form.elements.budgetNumber.value = fields.budgetNumber;
+    }
+    if (fields.totalValue && form.elements.totalValue) {
+      form.elements.totalValue.value = fields.totalValue;
+    }
+    const found = [fields.customerName, fields.budgetNumber, fields.totalValue].filter(Boolean).length;
+    setStatus(found
+      ? "PDF lido. Confira cliente, orçamento e valor antes de enviar."
+      : "Não consegui ler os dados deste PDF. Preencha manualmente e envie normalmente.");
+  } catch (error) {
+    setStatus(error.message || "Não consegui ler este PDF. Preencha manualmente e envie normalmente.");
   }
 }
 

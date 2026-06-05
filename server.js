@@ -265,6 +265,11 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/separations/preview-pdf") {
+    await handlePreviewSeparationPdf(request, response, currentUser);
+    return;
+  }
+
   const separationMatch = url.pathname.match(/^\/api\/separations\/([^/]+)$/);
   if (separationMatch && request.method === "PATCH") {
     await handleUpdateSeparationRequest(request, response, data, currentUser, separationMatch[1]);
@@ -661,6 +666,32 @@ async function handleCreatePersonalTask(request, response, data, currentUser) {
   });
 }
 
+async function handlePreviewSeparationPdf(request, response, currentUser) {
+  if (!["seller", "admin", "manager", "director"].includes(currentUser.role)) {
+    sendJson(response, 403, { ok: false, error: "Apenas vendedor, gerente ou diretor podem ler PDF de separacao." });
+    return;
+  }
+
+  const body = await readRequestBody(request);
+  const pdfAttachment = Array.isArray(body.separationPdf) ? body.separationPdf[0] : null;
+  if (!pdfAttachment || pdfAttachment.type !== "application/pdf") {
+    sendJson(response, 400, { ok: false, error: "Anexe um PDF do orçamento." });
+    return;
+  }
+
+  const fields = await extractSeparationPdfData(pdfAttachment);
+  await deleteStoredAttachments({ pdfAttachment });
+  sendJson(response, 200, {
+    ok: true,
+    fields: {
+      customerName: fields.customerName,
+      budgetNumber: fields.budgetNumber,
+      totalValue: fields.totalValue,
+      observations: "",
+    },
+  });
+}
+
 async function handleCreateSeparationRequest(request, response, data, currentUser) {
   if (!["seller", "admin", "manager", "director"].includes(currentUser.role)) {
     sendJson(response, 403, { ok: false, error: "Apenas vendedor, gerente ou diretor podem criar separacao." });
@@ -698,7 +729,7 @@ async function handleCreateSeparationRequest(request, response, data, currentUse
     customerName: cleanText(body.customerName, parsedPdf.customerName || "Cliente nao informado").slice(0, 140),
     store: normalizeUnit(body.store || currentUser.unit),
     requestType,
-    observation: cleanText(body.observation, parsedPdf.observations || "").slice(0, 3000),
+    observation: cleanText(body.observation, "").slice(0, 3000),
     priority: normalizePriority(body.priority),
     desiredDate,
     desiredDeliveryAt,
@@ -716,10 +747,10 @@ async function handleCreateSeparationRequest(request, response, data, currentUse
     sellerName: currentUser.name,
     sellerDepartment: currentUser.department,
     sellerUnit: normalizeUnit(currentUser.unit),
-    budgetNumber: parsedPdf.budgetNumber,
-    totalValue: parsedPdf.totalValue,
-    products: parsedPdf.products,
-    aiObservations: parsedPdf.observations,
+    budgetNumber: cleanText(body.budgetNumber, parsedPdf.budgetNumber || "").slice(0, 80),
+    totalValue: cleanText(body.totalValue, parsedPdf.totalValue || "").slice(0, 80),
+    products: [],
+    aiObservations: "",
     createdAt: now,
     updatedAt: now,
     completedAt: "",
@@ -2696,44 +2727,100 @@ async function createSignedPdfAttachment(documentAttachment, signatureDataUrl, s
 
 async function extractSeparationPdfData(pdfAttachment) {
   const source = await attachmentBuffer(pdfAttachment);
-  const raw = source?.buffer ? source.buffer.toString("latin1") : "";
-  const text = raw
-    .replace(/\(([^)]{1,160})\)/g, " $1 ")
+  const buffer = source?.buffer || Buffer.alloc(0);
+  const text = extractPdfTextFromBuffer(buffer);
+
+  return {
+    customerName: matchPdfField(text, ["cliente", "client", "raz[aã]o social", "nome"]),
+    budgetNumber: matchPdfBudgetNumber(text),
+    totalValue: matchPdfMoney(text),
+    observations: matchPdfField(text, ["observa[cç][aã]o", "observacoes", "obs"]),
+  };
+}
+
+function extractPdfTextFromBuffer(buffer) {
+  const raw = Buffer.isBuffer(buffer) ? buffer.toString("latin1") : "";
+  const parts = [extractPdfTextOperators(raw), raw.slice(0, 60000)];
+  const streamPattern = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+
+  for (const match of raw.matchAll(streamPattern)) {
+    const streamStart = match.index || 0;
+    const dictionary = raw.slice(Math.max(0, streamStart - 900), streamStart);
+    if (!/FlateDecode/i.test(dictionary)) continue;
+    try {
+      const decoded = zlib.inflateSync(Buffer.from(match[1], "latin1")).toString("latin1");
+      parts.push(extractPdfTextOperators(decoded), decoded);
+    } catch {
+      // Ignore streams that are not plain flate text content.
+    }
+  }
+
+  return normalizePdfText(parts.join(" "));
+}
+
+function extractPdfTextOperators(raw) {
+  const literalText = [...String(raw || "").matchAll(/\(([^)]{1,220})\)\s*Tj/g)]
+    .map((match) => match[1])
+    .join(" ");
+  const arrayText = [...String(raw || "").matchAll(/\[([\s\S]{1,1200}?)\]\s*TJ/g)]
+    .map((match) => match[1])
+    .join(" ");
+  const hexText = [...String(raw || "").matchAll(/<([0-9A-Fa-f]{6,})>\s*Tj|<([0-9A-Fa-f]{6,})>/g)]
+    .map((match) => decodePdfHexText(match[1] || match[2]))
+    .filter(Boolean)
+    .join(" ");
+  return `${literalText} ${arrayText} ${hexText}`;
+}
+
+function normalizePdfText(value) {
+  return String(value || "")
+    .replace(/\\([()\\])/g, "$1")
     .replace(/\\n|\\r/g, "\n")
     .replace(/[^\x20-\x7EÀ-ÿ\n]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
 
-  return {
-    customerName: matchPdfField(text, ["cliente", "client", "raz[aã]o social"]),
-    budgetNumber: matchPdfField(text, ["or[cç]amento", "orcamento", "pedido", "numero"]),
-    totalValue: matchPdfMoney(text),
-    products: extractPdfProducts(text),
-    observations: matchPdfField(text, ["observa[cç][aã]o", "observacoes", "obs"]),
-  };
+function decodePdfHexText(hex) {
+  try {
+    const cleanHex = String(hex || "").replace(/\s+/g, "");
+    if (cleanHex.length < 6 || cleanHex.length % 2 !== 0) return "";
+    const buffer = Buffer.from(cleanHex, "hex");
+    const utf16 = buffer.length > 2 && ((buffer[0] === 0xfe && buffer[1] === 0xff) || (buffer[0] === 0xff && buffer[1] === 0xfe));
+    return normalizePdfText(utf16 ? buffer.toString("utf16le") : buffer.toString("latin1"));
+  } catch {
+    return "";
+  }
 }
 
 function matchPdfField(text, labels) {
   for (const label of labels) {
     const pattern = new RegExp(`${label}\\s*[:#-]?\\s*([^|;\\n]{2,90})`, "i");
     const match = text.match(pattern);
-    if (match?.[1]) return cleanText(match[1], "").slice(0, 120);
+    if (match?.[1]) return cleanExtractedPdfValue(match[1]).slice(0, 120);
   }
   return "";
 }
 
-function matchPdfMoney(text) {
-  const matches = String(text || "").match(/R\$\s*\d{1,3}(?:\.\d{3})*(?:,\d{2})/g);
-  return matches?.at(-1) || "";
+function cleanExtractedPdfValue(value) {
+  return cleanText(value, "")
+    .replace(/\b(or[cç]amento|orcamento|pedido|total|valor|telefone|fone|whatsapp|vendedor)\b.*$/i, "")
+    .trim();
 }
 
-function extractPdfProducts(text) {
-  const matches = [...String(text || "").matchAll(/(?:cod(?:igo)?\.?\s*)?([A-Z0-9.-]{3,18})\s+(.{8,80}?)\s+(?:qtd\.?\s*)?(\d{1,5})(?:\s|$)/gi)];
-  return matches.slice(0, 80).map((match) => ({
-    code: cleanText(match[1], ""),
-    description: cleanText(match[2], "").slice(0, 120),
-    quantity: cleanText(match[3], "1"),
-  }));
+function matchPdfBudgetNumber(text) {
+  const direct = String(text || "").match(/\b(?:or[cç]amento|orcamento|pedido|proposta)\s*(?:n[ºo.]*)?\s*[:#-]?\s*([A-Z0-9.-]{3,30})/i);
+  if (direct?.[1]) return cleanText(direct[1], "").slice(0, 80);
+  const loose = String(text || "").match(/\b(?:orc|or[cç])\s*[:#-]?\s*([0-9]{3,30})/i);
+  return loose?.[1] ? cleanText(loose[1], "").slice(0, 80) : "";
+}
+
+function matchPdfMoney(text) {
+  const labeled = String(text || "").match(/\b(?:total|valor total|vlr total)\s*[:#-]?\s*(R?\$?\s*\d{1,3}(?:\.\d{3})*(?:,\d{2}))/i);
+  if (labeled?.[1]) return labeled[1].replace(/^R?\$?/, "R$ ").replace(/\s+/g, " ").trim();
+  const matches = String(text || "").match(/R\$\s*\d{1,3}(?:\.\d{3})*(?:,\d{2})|\b\d{1,3}(?:\.\d{3})*,\d{2}\b/g);
+  const value = matches?.at(-1) || "";
+  return value && !value.startsWith("R$") ? `R$ ${value}` : value;
 }
 
 async function imageDocumentToPdf(buffer, mimeType) {

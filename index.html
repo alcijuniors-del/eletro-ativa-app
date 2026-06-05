@@ -329,6 +329,14 @@
                   <input name="customerName" type="text" placeholder="Preenchido pela IA se existir no PDF" />
                 </label>
                 <label>
+                  Nº orçamento
+                  <input name="budgetNumber" type="text" placeholder="Preenchido pela leitura do PDF" />
+                </label>
+                <label>
+                  Valor total
+                  <input name="totalValue" type="text" placeholder="Preenchido pela leitura do PDF" />
+                </label>
+                <label>
                   Loja
                   <select name="store">
                     <option value="SPZ">SPZ</option>
@@ -368,6 +376,7 @@
                   Justificativa para prazo menor que 3 dias
                   <textarea name="urgentJustification" rows="2" placeholder="Obrigatória para Líder de Equipe com prazo menor que 3 dias."></textarea>
                 </label>
+                <p class="form-wide input-hint separation-pdf-status" id="separation-pdf-status">A leitura automática preencherá cliente, orçamento e valor quando o PDF permitir.</p>
               </div>
               <div class="manager-card-actions">
                 <button class="primary-button" type="submit">
