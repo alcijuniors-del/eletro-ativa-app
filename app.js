@@ -130,6 +130,7 @@ let personalTasks = [];
 let meetings = [];
 let crmOpportunities = [];
 let signatureRecords = [];
+let hiringRequests = [];
 let emailMode = null;
 let currentUser = null;
 let selectedId = null;
@@ -173,6 +174,7 @@ const elements = {
   personalTasksButton: document.querySelector("#personal-tasks-button"),
   meetingsViewButton: document.querySelector("#meetings-view-button"),
   crmViewButton: document.querySelector("#crm-view-button"),
+  hiringsViewButton: document.querySelector("#hirings-view-button"),
   signatureViewButton: document.querySelector("#signature-view-button"),
   navItems: document.querySelectorAll(".nav-item"),
   requestList: document.querySelector("#request-list"),
@@ -276,6 +278,13 @@ const elements = {
   signatureList: document.querySelector("#signature-list"),
   signatureEmptyState: document.querySelector("#signature-empty-state"),
   signatureCount: document.querySelector("#signature-count"),
+  hiringsPanel: document.querySelector("#hirings-panel"),
+  hiringForm: document.querySelector("#hiring-form"),
+  hiringsTitle: document.querySelector("#hirings-title"),
+  hiringsCount: document.querySelector("#hirings-count"),
+  hiringsSummary: document.querySelector("#hirings-summary"),
+  hiringsList: document.querySelector("#hirings-list"),
+  hiringsEmptyState: document.querySelector("#hirings-empty-state"),
   crmCountAll: document.querySelector("#crm-count-all"),
   crmCountNew: document.querySelector("#crm-count-new"),
   crmCountService: document.querySelector("#crm-count-service"),
@@ -350,6 +359,7 @@ async function loadSession() {
     meetings = [];
     crmOpportunities = [];
     signatureRecords = [];
+    hiringRequests = [];
     emailMode = null;
     selectedId = null;
   }
@@ -373,6 +383,7 @@ function applyState(payload) {
   meetings = Array.isArray(payload.meetings) ? payload.meetings : meetings;
   crmOpportunities = Array.isArray(payload.crmOpportunities) ? payload.crmOpportunities : crmOpportunities;
   signatureRecords = Array.isArray(payload.signatureRecords) ? payload.signatureRecords : signatureRecords;
+  hiringRequests = Array.isArray(payload.hiringRequests) ? payload.hiringRequests : hiringRequests;
   emailMode = payload.emailMode ?? emailMode;
 
   if (!requests.some((request) => request.id === selectedId)) {
@@ -400,6 +411,7 @@ async function apiFetch(path, options = {}) {
       meetings = [];
       crmOpportunities = [];
       signatureRecords = [];
+      hiringRequests = [];
       emailMode = null;
       renderAuth();
     }
@@ -646,6 +658,7 @@ function renderAdminView() {
   const showingMeetings = adminView === "meetings";
   const showingCrm = adminView === "crm";
   const showingSignatures = adminView === "signatures";
+  const showingHirings = adminView === "hirings";
   elements.requestsAdminView.forEach((element) => {
     element.classList.toggle("hidden", !showingRequests);
   });
@@ -656,6 +669,7 @@ function renderAdminView() {
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
   elements.crmPanel.classList.toggle("hidden", !showingCrm);
   elements.signaturePanel.classList.toggle("hidden", !showingSignatures);
+  elements.hiringsPanel.classList.toggle("hidden", !showingHirings);
   elements.requestsViewButton.classList.toggle("active-view-button", adminView === "requests");
   elements.materialListsButton.classList.toggle("active-view-button", showingMaterialLists);
   elements.performanceViewButton.classList.toggle("active-view-button", showingPerformance);
@@ -663,6 +677,8 @@ function renderAdminView() {
   elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
   elements.crmViewButton.classList.remove("hidden");
   elements.crmViewButton.classList.toggle("active-view-button", showingCrm);
+  elements.hiringsViewButton.classList.remove("hidden");
+  elements.hiringsViewButton.classList.toggle("active-view-button", showingHirings);
   elements.signatureViewButton.classList.toggle("active-view-button", showingSignatures);
 
   if (showingPersonalTasks) {
@@ -694,6 +710,13 @@ function renderAdminView() {
     return;
   }
 
+  if (showingHirings) {
+    elements.appEyebrow.textContent = "Contratações";
+    elements.appTitle.textContent = "Autorizações de contratação";
+    renderHirings();
+    return;
+  }
+
   if (showingPerformance) {
     elements.appEyebrow.textContent = "Indicadores";
     elements.appTitle.textContent = "Desempenho do admin e engenheiro";
@@ -717,19 +740,23 @@ function renderManagerView() {
 
   const showingMeetings = managerWorkspace === "meetings";
   const showingCrm = managerWorkspace === "crm";
-  elements.managerPanel.classList.toggle("hidden", showingMeetings || showingCrm || currentUser.role === "engineer");
-  elements.managerHistoryPanel.classList.toggle("hidden", showingMeetings || showingCrm);
+  const showingHirings = managerWorkspace === "hirings";
+  elements.managerPanel.classList.toggle("hidden", showingMeetings || showingCrm || showingHirings || currentUser.role === "engineer");
+  elements.managerHistoryPanel.classList.toggle("hidden", showingMeetings || showingCrm || showingHirings);
   elements.performancePanel.classList.add("hidden");
   elements.personalTasksPanel.classList.add("hidden");
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
   elements.crmPanel.classList.toggle("hidden", !showingCrm);
   elements.signaturePanel.classList.add("hidden");
+  elements.hiringsPanel.classList.toggle("hidden", !showingHirings);
   elements.requestsViewButton.classList.toggle("hidden", currentUser.role === "seller");
   elements.meetingsViewButton.classList.toggle("hidden", currentUser.role === "seller");
   elements.crmViewButton.classList.toggle("hidden", currentUser.role !== "seller");
-  elements.requestsViewButton.classList.toggle("active-view-button", !showingMeetings && !showingCrm);
+  elements.hiringsViewButton.classList.toggle("hidden", currentUser.role === "seller" || currentUser.role === "engineer");
+  elements.requestsViewButton.classList.toggle("active-view-button", !showingMeetings && !showingCrm && !showingHirings);
   elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
   elements.crmViewButton.classList.toggle("active-view-button", showingCrm);
+  elements.hiringsViewButton.classList.toggle("active-view-button", showingHirings);
 
   if (showingMeetings) {
     elements.appEyebrow.textContent = "Agenda Alcir";
@@ -742,6 +769,13 @@ function renderManagerView() {
     elements.appEyebrow.textContent = "Área do vendedor";
     elements.appTitle.textContent = "Minhas vendas";
     renderCrm();
+    return;
+  }
+
+  if (showingHirings) {
+    elements.appEyebrow.textContent = "Gerente administrativo";
+    elements.appTitle.textContent = "Contratações";
+    renderHirings();
     return;
   }
 
@@ -2156,6 +2190,11 @@ function findAttachment(attachmentId) {
     if (signature.signedAttachment?.id === attachmentId) return signature.signedAttachment;
   }
 
+  for (const hiring of hiringRequests) {
+    if (hiring.resumeAttachment?.id === attachmentId) return hiring.resumeAttachment;
+    if (hiring.decisionAttachment?.id === attachmentId) return hiring.decisionAttachment;
+  }
+
   return null;
 }
 
@@ -3367,6 +3406,147 @@ async function deleteSignatureRecord(signatureId) {
   }
 }
 
+function renderHirings() {
+  const records = Array.isArray(hiringRequests) ? hiringRequests : [];
+  const pendingCount = records.filter((item) => item.status === "pendente").length;
+  elements.hiringsTitle.textContent = isAdmin() ? "Autorizações de contratação" : "Solicitar autorização de contratação";
+  elements.hiringsSummary.textContent = isAdmin()
+    ? `${pendingCount} aguardando decisão`
+    : "Envie o currículo e a análise criteriosa para aprovação.";
+  elements.hiringsCount.textContent = `${records.length} solicitaç${records.length === 1 ? "ão" : "ões"}`;
+  elements.hiringForm.classList.toggle("hidden", isAdmin());
+  elements.hiringsList.innerHTML = "";
+  elements.hiringsEmptyState.classList.toggle("hidden", records.length > 0);
+
+  records.forEach((hiring) => {
+    const card = document.createElement("article");
+    card.className = `hiring-card hiring-${hiring.status || "pendente"}`;
+    card.innerHTML = hiringCardMarkup(hiring);
+    elements.hiringsList.append(card);
+  });
+}
+
+function hiringCardMarkup(hiring) {
+  const statusLabel = hiringStatusLabel(hiring.status);
+  const relationship = hiring.relationshipInsideGroup === "sim" ? "Sim" : "Não";
+  const decisionDone = hiring.status !== "pendente";
+  const adminDecisionForm = isAdmin() && !decisionDone
+    ? `
+      <form class="hiring-decision-form" data-hiring-decision-form="${escapeHtml(hiring.id)}">
+        <label>
+          Observação da decisão
+          <textarea name="decisionNote" rows="3" placeholder="Explique o motivo da aprovação ou reprovação."></textarea>
+        </label>
+        <div class="manager-card-actions">
+          <button class="primary-button" type="submit" name="decision" value="approved">Aprovar</button>
+          <button class="ghost-button danger-action" type="submit" name="decision" value="rejected">Reprovar</button>
+        </div>
+      </form>
+    `
+    : "";
+
+  return `
+    <div class="request-title-row">
+      <div>
+        <strong>${escapeHtml(hiring.candidateName)}</strong>
+        <span class="manager-request-date">Solicitada em ${formatDateTime(hiring.createdAt)} por ${escapeHtml(hiring.createdByName || "")}</span>
+      </div>
+      <span class="status-pill ${hiringStatusClass(hiring.status)}">${escapeHtml(statusLabel)}</span>
+    </div>
+    <div class="hiring-meta-grid">
+      <div><span>Função</span><strong>${escapeHtml(hiring.targetRole)}</strong></div>
+      <div><span>Salário prometido</span><strong>${escapeHtml(hiring.promisedSalary)}</strong></div>
+      <div><span>Vínculo no grupo</span><strong>${escapeHtml(relationship)}</strong></div>
+      <div><span>Loja/setor</span><strong>${escapeHtml(hiring.createdByDepartment || "Não informado")}</strong></div>
+    </div>
+    ${hiring.relationshipInsideGroup === "sim" ? `<p class="request-description"><strong>Vínculo:</strong> ${escapeHtml(hiring.relationshipDetails)}</p>` : ""}
+    <p class="request-description"><strong>Motivo da seleção:</strong> ${escapeHtml(hiring.selectionReason)}</p>
+    <p class="request-description"><strong>Análise do perfil:</strong> ${escapeHtml(hiring.experienceSummary)}</p>
+    ${hiring.risksAndObservations ? `<p class="request-description"><strong>Riscos/observações:</strong> ${escapeHtml(hiring.risksAndObservations)}</p>` : ""}
+    ${hiring.decisionNote ? `<p class="request-description"><strong>Decisão:</strong> ${escapeHtml(hiring.decisionNote)}</p>` : ""}
+    <div class="hiring-attachments">
+      ${attachmentsMarkup(hiring.resumeAttachment ? [hiring.resumeAttachment] : [], "Currículo original")}
+      ${attachmentsMarkup(hiring.decisionAttachment ? [hiring.decisionAttachment] : [], "PDF assinado da decisão")}
+    </div>
+    ${adminDecisionForm}
+    ${
+      isAdmin()
+        ? `<div class="manager-card-actions"><button class="ghost-button compact-button danger-action" type="button" data-delete-hiring="${escapeHtml(hiring.id)}">Excluir</button></div>`
+        : ""
+    }
+  `;
+}
+
+function hiringStatusLabel(status) {
+  return {
+    pendente: "Pendente",
+    aprovada: "Aprovada",
+    reprovada: "Reprovada",
+  }[status] || "Pendente";
+}
+
+function hiringStatusClass(status) {
+  if (status === "aprovada") return "status-resolvida";
+  if (status === "reprovada") return "status-nova";
+  return "status-andamento";
+}
+
+async function createHiringRequest(formData) {
+  try {
+    const payload = new FormData();
+    [
+      "candidateName",
+      "targetRole",
+      "promisedSalary",
+      "relationshipInsideGroup",
+      "relationshipDetails",
+      "selectionReason",
+      "experienceSummary",
+      "risksAndObservations",
+    ].forEach((field) => payload.set(field, formData.get(field)?.trim() || ""));
+    await appendAttachmentsToPayload(payload, formData.getAll("hiringResume"), "hiringResume");
+
+    const result = await apiFetch("/api/hirings", formRequest("POST", payload));
+    hiringRequests = result.hirings;
+    elements.hiringForm.reset();
+    resetFileFieldStates(elements.hiringForm);
+    renderHirings();
+    showToast("Solicitação de contratação enviada.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function decideHiringRequest(hiringId, decision, decisionNote) {
+  try {
+    const result = await apiFetch(
+      `/api/hirings/${encodeURIComponent(hiringId)}/decision`,
+      jsonRequest("PATCH", { decision, decisionNote }),
+    );
+    hiringRequests = result.hirings;
+    renderHirings();
+    showToast(decision === "approved" ? "Contratação aprovada e PDF assinado." : "Contratação reprovada e PDF assinado.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function deleteHiringRequest(hiringId) {
+  if (!isAdmin()) return;
+  const hiring = hiringRequests.find((item) => item.id === hiringId);
+  const confirmed = window.confirm(`Excluir a contratação de "${hiring?.candidateName || "candidato"}"?`);
+  if (!confirmed) return;
+
+  try {
+    const result = await apiFetch(`/api/hirings/${encodeURIComponent(hiringId)}`, { method: "DELETE" });
+    hiringRequests = result.hirings;
+    renderHirings();
+    showToast("Contratação excluída.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 function printSelectedRequest() {
   if (!selectedId) return;
   printRequestPdf(selectedId);
@@ -3807,6 +3987,7 @@ async function logout() {
   meetings = [];
   crmOpportunities = [];
   signatureRecords = [];
+  hiringRequests = [];
   emailMode = null;
   selectedId = null;
   adminView = "requests";
@@ -4135,6 +4316,16 @@ function bindEvents() {
     renderManagerView();
   });
 
+  elements.hiringsViewButton.addEventListener("click", () => {
+    if (isAdmin()) {
+      adminView = "hirings";
+      renderAdminView();
+      return;
+    }
+    managerWorkspace = "hirings";
+    renderManagerView();
+  });
+
   elements.signatureViewButton.addEventListener("click", () => {
     adminView = "signatures";
     renderAdminView();
@@ -4208,6 +4399,22 @@ function bindEvents() {
   elements.signatureForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await createSignatureRecord(new FormData(elements.signatureForm));
+  });
+  elements.hiringForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await createHiringRequest(new FormData(elements.hiringForm));
+  });
+  elements.hiringsList.addEventListener("submit", (event) => {
+    const form = event.target.closest("[data-hiring-decision-form]");
+    if (!form) return;
+    event.preventDefault();
+    const submitter = event.submitter;
+    decideHiringRequest(form.dataset.hiringDecisionForm, submitter?.value || "", form.elements.decisionNote?.value || "");
+  });
+  elements.hiringsList.addEventListener("click", (event) => {
+    const deleteButton = event.target.closest("[data-delete-hiring]");
+    if (!deleteButton) return;
+    deleteHiringRequest(deleteButton.dataset.deleteHiring);
   });
   elements.clearSignatureButton.addEventListener("click", clearSignaturePad);
   elements.typedSignatureButton.addEventListener("click", drawTypedSignature);

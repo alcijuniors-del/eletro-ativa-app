@@ -143,6 +143,10 @@
               <span aria-hidden="true">$</span>
               CRM Vendas
             </button>
+            <button class="ghost-button" id="hirings-view-button" type="button">
+              <span aria-hidden="true">H</span>
+              Contratações
+            </button>
             <button class="ghost-button" id="signature-view-button" type="button" data-admin-only>
               <span aria-hidden="true">A</span>
               Assinatura
@@ -281,6 +285,81 @@
               <div class="empty-state hidden" id="signature-empty-state">
                 <strong>Nenhum documento assinado</strong>
                 <span>Ao salvar a primeira assinatura, o documento assinado aparece aqui para abrir ou baixar.</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="hirings-panel hidden" id="hirings-panel" aria-label="Contratações">
+          <div class="manager-submit-header">
+            <div>
+              <p class="eyebrow">Contratações</p>
+              <h2 id="hirings-title">Autorizações de contratação</h2>
+            </div>
+            <span class="status-pill status-andamento" id="hirings-count">0 solicitações</span>
+          </div>
+
+          <div class="hirings-layout">
+            <form class="request-form hiring-form" id="hiring-form">
+              <div class="form-grid">
+                <label>
+                  Nome do candidato
+                  <input name="candidateName" type="text" required placeholder="Nome completo" />
+                </label>
+                <label>
+                  Função
+                  <input name="targetRole" type="text" required placeholder="Ex.: Vendedor, caixa, administrativo" />
+                </label>
+                <label>
+                  Salário inicial prometido
+                  <input name="promisedSalary" type="text" required placeholder="Ex.: R$ 2.500,00 + benefícios" />
+                </label>
+                <label>
+                  Tem vínculo com alguém do grupo?
+                  <select name="relationshipInsideGroup" id="hiring-relationship">
+                    <option value="nao">Não</option>
+                    <option value="sim">Sim</option>
+                  </select>
+                </label>
+                <label class="form-wide">
+                  Se tiver vínculo, explique quem é e qual relação
+                  <input name="relationshipDetails" type="text" placeholder="Ex.: parente de colaborador, indicação direta, amizade" />
+                </label>
+                <label class="form-wide">
+                  O que levou a selecionar esta pessoa?
+                  <textarea name="selectionReason" rows="4" required placeholder="Critérios da escolha, comparação com outros candidatos e pontos fortes."></textarea>
+                </label>
+                <label class="form-wide">
+                  Análise do perfil para a função
+                  <textarea name="experienceSummary" rows="4" required placeholder="Experiência, postura, referências, disponibilidade, aderência à loja e maturidade."></textarea>
+                </label>
+                <label class="form-wide">
+                  Riscos, observações e pontos de atenção
+                  <textarea name="risksAndObservations" rows="3" placeholder="Pendências, dúvidas, restrições, histórico ou pontos que exigem acompanhamento."></textarea>
+                </label>
+                <label class="form-wide file-field">
+                  Currículo em PDF
+                  <input name="hiringResume" type="file" accept="application/pdf" required />
+                  <span class="input-hint">Anexe somente o currículo em PDF. A decisão sairá assinada no próprio PDF.</span>
+                </label>
+              </div>
+              <div class="manager-card-actions">
+                <button class="primary-button" type="submit">
+                  <span aria-hidden="true">+</span>
+                  Solicitar autorização
+                </button>
+              </div>
+            </form>
+
+            <div class="hirings-list-panel">
+              <div class="panel-heading">
+                <h3>Solicitações</h3>
+                <span id="hirings-summary">Aguardando análise do Alci Jr.</span>
+              </div>
+              <div class="hirings-list" id="hirings-list"></div>
+              <div class="empty-state hidden" id="hirings-empty-state">
+                <strong>Nenhuma contratação</strong>
+                <span>As solicitações de autorização aparecem aqui com o PDF do currículo.</span>
               </div>
             </div>
           </div>

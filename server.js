@@ -251,6 +251,30 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/hirings") {
+    sendJson(response, 200, { ok: true, hirings: visibleHiringRequests(data.hiringRequests, currentUser) });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/hirings") {
+    await handleCreateHiringRequest(request, response, data, currentUser);
+    return;
+  }
+
+  const hiringDecisionMatch = url.pathname.match(/^\/api\/hirings\/([^/]+)\/decision$/);
+  if (hiringDecisionMatch && request.method === "PATCH") {
+    requireAdmin(currentUser);
+    await handleHiringDecision(request, response, data, currentUser, hiringDecisionMatch[1]);
+    return;
+  }
+
+  const hiringMatch = url.pathname.match(/^\/api\/hirings\/([^/]+)$/);
+  if (hiringMatch && request.method === "DELETE") {
+    requireAdmin(currentUser);
+    await handleDeleteHiringRequest(response, data, hiringMatch[1]);
+    return;
+  }
+
   const crmOpportunityMatch = url.pathname.match(/^\/api\/crm-opportunities\/([^/]+)$/);
   if (crmOpportunityMatch && request.method === "PATCH") {
     await handleUpdateCrmOpportunity(request, response, data, currentUser, crmOpportunityMatch[1]);
@@ -622,6 +646,120 @@ async function handleDeleteSignature(response, data, signatureId) {
   await deleteStoredAttachments(signatureToDelete);
   await writeData(data);
   sendJson(response, 200, { ok: true, signatures: sortSignatureRecords(data.signatureRecords) });
+}
+
+async function handleCreateHiringRequest(request, response, data, currentUser) {
+  if (!["admin", "manager"].includes(currentUser.role)) {
+    sendJson(response, 403, { ok: false, error: "Acesso restrito a gerentes administrativos." });
+    return;
+  }
+
+  const body = await readRequestBody(request);
+  const resumeAttachment = Array.isArray(body.hiringResume) ? body.hiringResume[0] : null;
+
+  if (!resumeAttachment || resumeAttachment.type !== "application/pdf") {
+    sendJson(response, 400, { ok: false, error: "Anexe o curriculo em PDF." });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const relationship = normalizeYesNo(body.relationshipInsideGroup);
+  const hiring = {
+    id: createId("hiring"),
+    candidateName: cleanText(body.candidateName, "Candidato nao informado").slice(0, 120),
+    targetRole: cleanText(body.targetRole, "Funcao nao informada").slice(0, 120),
+    promisedSalary: cleanText(body.promisedSalary, "Nao informado").slice(0, 80),
+    selectionReason: cleanText(body.selectionReason, "").slice(0, 3000),
+    experienceSummary: cleanText(body.experienceSummary, "").slice(0, 3000),
+    relationshipInsideGroup: relationship,
+    relationshipDetails: relationship === "sim" ? cleanText(body.relationshipDetails, "").slice(0, 2000) : "",
+    risksAndObservations: cleanText(body.risksAndObservations, "").slice(0, 3000),
+    status: "pendente",
+    resumeAttachment,
+    decisionAttachment: null,
+    decisionNote: "",
+    decidedBy: "",
+    decidedByName: "",
+    decidedAt: "",
+    createdBy: currentUser.id,
+    createdByName: currentUser.name,
+    createdByDepartment: currentUser.department,
+    createdAt: now,
+    updatedAt: now,
+    history: [`Solicitacao de contratacao registrada em ${formatDateTime(now)} por ${currentUser.name}`],
+  };
+
+  if (!hiring.candidateName || !hiring.targetRole || !hiring.selectionReason || !hiring.experienceSummary) {
+    sendJson(response, 400, { ok: false, error: "Preencha candidato, funcao, motivo da selecao e analise do perfil." });
+    return;
+  }
+
+  data.hiringRequests = [hiring, ...data.hiringRequests];
+  await writeData(data);
+  sendJson(response, 201, {
+    ok: true,
+    hiring,
+    hirings: visibleHiringRequests(data.hiringRequests, currentUser),
+  });
+}
+
+async function handleHiringDecision(request, response, data, currentUser, hiringId) {
+  const body = await readRequestBody(request);
+  const index = data.hiringRequests.findIndex((item) => item.id === hiringId);
+
+  if (index === -1) {
+    sendJson(response, 404, { ok: false, error: "Solicitacao de contratacao nao encontrada." });
+    return;
+  }
+
+  const previous = data.hiringRequests[index];
+  const decision = normalizeHiringDecision(body.decision);
+  if (!decision) {
+    sendJson(response, 400, { ok: false, error: "Informe se foi aprovado ou reprovado." });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const decisionNote = cleanText(body.decisionNote, "").slice(0, 3000);
+  const decisionAttachment = await createHiringDecisionPdfAttachment(previous, decision, decisionNote, now);
+  const status = decision === "approved" ? "aprovada" : "reprovada";
+  const history = Array.isArray(previous.history) ? [...previous.history] : [];
+  history.push(`${status === "aprovada" ? "Aprovada" : "Reprovada"} em ${formatDateTime(now)} por ALCI JR.`);
+
+  const hiring = {
+    ...previous,
+    status,
+    decisionAttachment,
+    decisionNote,
+    decidedBy: currentUser.id,
+    decidedByName: "ALCI JR.",
+    decidedAt: now,
+    updatedAt: now,
+    history,
+  };
+
+  data.hiringRequests[index] = hiring;
+  await writeData(data);
+  sendJson(response, 200, {
+    ok: true,
+    hiring,
+    hirings: visibleHiringRequests(data.hiringRequests, currentUser),
+  });
+}
+
+async function handleDeleteHiringRequest(response, data, hiringId) {
+  const hiringToDelete = data.hiringRequests.find((item) => item.id === hiringId);
+  const before = data.hiringRequests.length;
+  data.hiringRequests = data.hiringRequests.filter((item) => item.id !== hiringId);
+
+  if (data.hiringRequests.length === before) {
+    sendJson(response, 404, { ok: false, error: "Solicitacao de contratacao nao encontrada." });
+    return;
+  }
+
+  await deleteStoredAttachments(hiringToDelete);
+  await writeData(data);
+  sendJson(response, 200, { ok: true, hirings: sortHiringRequests(data.hiringRequests) });
 }
 
 async function buildCrmOpportunity(data, body, currentUser) {
@@ -1207,7 +1345,8 @@ async function handleAttachmentDownload(response, data, currentUser, attachmentI
   const match =
     findAttachmentRecord(data.requests, currentUser, attachmentId) ||
     findVisibleCrmAttachmentRecord(data.crmOpportunities, currentUser, attachmentId) ||
-    findSignatureAttachmentRecord(data.signatureRecords, currentUser, attachmentId);
+    findSignatureAttachmentRecord(data.signatureRecords, currentUser, attachmentId) ||
+    findVisibleHiringAttachmentRecord(data.hiringRequests, currentUser, attachmentId);
 
   if (!match) {
     sendJson(response, 404, { ok: false, error: "Anexo nao encontrado." });
@@ -1440,6 +1579,7 @@ function buildStatePayload(data, currentUser, request = null) {
     meetings: visibleMeetings(data.meetings, currentUser),
     crmOpportunities: visibleCrmOpportunities(data.crmOpportunities, currentUser),
     signatureRecords: isAdmin ? sortSignatureRecords(data.signatureRecords) : [],
+    hiringRequests: visibleHiringRequests(data.hiringRequests, currentUser),
     emailMode: isAdmin ? emailModeStatus(request) : null,
   };
 }
@@ -1473,6 +1613,7 @@ async function readData() {
     crmOpportunities: Array.isArray(parsed.crmOpportunities) ? parsed.crmOpportunities : [],
     crmEmailImports: Array.isArray(parsed.crmEmailImports) ? parsed.crmEmailImports : [],
     signatureRecords: Array.isArray(parsed.signatureRecords) ? parsed.signatureRecords : [],
+    hiringRequests: Array.isArray(parsed.hiringRequests) ? parsed.hiringRequests : [],
   };
   const migrated = await migrateLegacyAttachments(data.requests);
   const migratedHighPriorityDueDates = migrateHighPriorityDueDates(data.requests);
@@ -1604,6 +1745,7 @@ async function ensureDataFile() {
     crmOpportunities: [],
     crmEmailImports: [],
     signatureRecords: [],
+    hiringRequests: [],
   };
 
   await writeData(initialData);
@@ -1771,6 +1913,16 @@ function normalizeMeetingStatus(value) {
 
 function normalizeCrmStatus(value) {
   return Object.prototype.hasOwnProperty.call(crmStatusLabels, value) ? value : "novo";
+}
+
+function normalizeHiringDecision(value) {
+  if (["approved", "aprovada", "aprovar"].includes(value)) return "approved";
+  if (["rejected", "reprovada", "reprovar"].includes(value)) return "rejected";
+  return "";
+}
+
+function normalizeYesNo(value) {
+  return String(value || "").toLowerCase() === "sim" ? "sim" : "nao";
 }
 
 function emailBodyToCrmPayload(body = {}, users = []) {
@@ -2222,6 +2374,135 @@ function signedPdfName(documentName) {
   return `${baseName || "documento"} - assinado.pdf`;
 }
 
+async function createHiringDecisionPdfAttachment(hiring, decision, decisionNote, decidedAt) {
+  const source = await attachmentBuffer(hiring.resumeAttachment);
+  if (!source) {
+    const error = new Error("Nao foi possivel ler o curriculo em PDF.");
+    error.status = 400;
+    throw error;
+  }
+
+  const pdfDoc = await PDFDocument.load(source.buffer);
+  const page = pdfDoc.getPages().at(-1);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const { width } = page.getSize();
+  const decisionText = decision === "approved" ? "APROVADO POR ALCI JR." : "REPROVADO POR ALCI JR.";
+  const decisionLabel = decision === "approved" ? "Aprovado" : "Reprovado";
+  const stampWidth = Math.min(250, width * 0.42);
+  const stampX = Math.max(36, width - stampWidth - 36);
+  const stampY = 44;
+
+  page.drawRectangle({
+    x: stampX - 10,
+    y: stampY - 12,
+    width: stampWidth + 20,
+    height: 92,
+    borderWidth: 1.2,
+    borderColor: rgb(0, 0, 0),
+    color: rgb(1, 1, 1),
+    opacity: 0.92,
+  });
+  page.drawText(decisionText, {
+    x: stampX,
+    y: stampY + 52,
+    size: 11,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+  page.drawText(`Data: ${formatDateTime(decidedAt)}`, {
+    x: stampX,
+    y: stampY + 36,
+    size: 8.5,
+    font,
+    color: rgb(0, 0, 0),
+  });
+  page.drawText(`Funcao: ${truncateForPdf(hiring.targetRole, 34)}`, {
+    x: stampX,
+    y: stampY + 22,
+    size: 8.5,
+    font,
+    color: rgb(0, 0, 0),
+  });
+  page.drawText(`Salario: ${truncateForPdf(hiring.promisedSalary, 32)}`, {
+    x: stampX,
+    y: stampY + 8,
+    size: 8.5,
+    font,
+    color: rgb(0, 0, 0),
+  });
+
+  if (decisionNote) {
+    const notePage = pdfDoc.addPage([595.28, 841.89]);
+    drawHiringDecisionSummary(notePage, font, boldFont, hiring, decisionLabel, decisionNote, decidedAt);
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  return storeGeneratedPdfAttachment(Buffer.from(pdfBytes), hiringDecisionPdfName(hiring.candidateName, decisionLabel));
+}
+
+function drawHiringDecisionSummary(page, font, boldFont, hiring, decisionLabel, decisionNote, decidedAt) {
+  const left = 52;
+  let y = 780;
+  page.drawText(`Contratacao ${decisionLabel} por ALCI JR.`, {
+    x: left,
+    y,
+    size: 18,
+    font: boldFont,
+    color: rgb(0, 0, 0),
+  });
+  y -= 34;
+
+  const rows = [
+    ["Candidato", hiring.candidateName],
+    ["Funcao", hiring.targetRole],
+    ["Salario inicial prometido", hiring.promisedSalary],
+    ["Vinculo no grupo", hiring.relationshipInsideGroup === "sim" ? "Sim" : "Nao"],
+    ["Data da decisao", formatDateTime(decidedAt)],
+  ];
+
+  rows.forEach(([label, value]) => {
+    page.drawText(`${label}:`, { x: left, y, size: 10, font: boldFont, color: rgb(0, 0, 0) });
+    page.drawText(truncateForPdf(value, 72), { x: left + 150, y, size: 10, font, color: rgb(0, 0, 0) });
+    y -= 20;
+  });
+
+  y -= 10;
+  page.drawText("Observacao da decisao:", { x: left, y, size: 12, font: boldFont, color: rgb(0, 0, 0) });
+  y -= 18;
+  wrapPdfText(decisionNote, 88).slice(0, 22).forEach((line) => {
+    page.drawText(line, { x: left, y, size: 10, font, color: rgb(0, 0, 0) });
+    y -= 15;
+  });
+}
+
+function hiringDecisionPdfName(candidateName, decisionLabel) {
+  const baseName = cleanText(candidateName, "candidato").replace(/\.[a-z0-9]+$/i, "").slice(0, 70);
+  return `${baseName || "candidato"} - ${decisionLabel.toLowerCase()} por ALCI JR.pdf`;
+}
+
+function truncateForPdf(value = "", maxLength = 72) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+}
+
+function wrapPdfText(value = "", maxLength = 88) {
+  const words = String(value || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const lines = [];
+  let line = "";
+  words.forEach((word) => {
+    const next = line ? `${line} ${word}` : word;
+    if (next.length > maxLength) {
+      if (line) lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  });
+  if (line) lines.push(line);
+  return lines.length ? lines : [""];
+}
+
 async function storeUploadedAttachments(files = []) {
   if (!Array.isArray(files)) return [];
   if (files.length > MAX_ATTACHMENTS_PER_FIELD) {
@@ -2489,6 +2770,17 @@ function findSignatureAttachmentRecord(signatureRecords, currentUser, attachment
   return null;
 }
 
+function findVisibleHiringAttachmentRecord(hiringRequests, currentUser, attachmentId) {
+  for (const hiring of hiringRequests) {
+    if (!canViewHiringRequest(hiring, currentUser)) continue;
+    const attachments = [hiring.resumeAttachment, hiring.decisionAttachment].filter(Boolean);
+    const attachment = attachments.find((item) => item.id === attachmentId);
+    if (attachment) return { hiring, attachment };
+  }
+
+  return null;
+}
+
 function canViewCrmOpportunity(opportunity, currentUser) {
   if (currentUser.role === "admin") return true;
   return currentUser.role === "seller" && opportunity.ownerId === currentUser.id;
@@ -2517,6 +2809,8 @@ async function deleteStoredAttachments(taskRequest) {
     ...(Array.isArray(taskRequest?.responseAttachments) ? taskRequest.responseAttachments : []),
     ...(taskRequest?.documentAttachment ? [taskRequest.documentAttachment] : []),
     ...(taskRequest?.signedAttachment ? [taskRequest.signedAttachment] : []),
+    ...(taskRequest?.resumeAttachment ? [taskRequest.resumeAttachment] : []),
+    ...(taskRequest?.decisionAttachment ? [taskRequest.decisionAttachment] : []),
   ];
   const allowedRoot = path.resolve(UPLOAD_DIR);
 
@@ -2571,8 +2865,35 @@ function sortSignatureRecords(items = []) {
   });
 }
 
+function sortHiringRequests(items = []) {
+  const statusWeight = {
+    pendente: 1,
+    aprovada: 2,
+    reprovada: 3,
+  };
+
+  return [...items].sort((left, right) => {
+    const statusDiff = (statusWeight[left.status] || 99) - (statusWeight[right.status] || 99);
+    if (statusDiff !== 0) return statusDiff;
+
+    const updatedDiff = new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
+    if (updatedDiff !== 0) return updatedDiff;
+
+    return String(right.id || "").localeCompare(String(left.id || ""));
+  });
+}
+
 function visibleCrmOpportunities(items = [], currentUser) {
   return sortCrmOpportunities(items.filter((opportunity) => canViewCrmOpportunity(opportunity, currentUser)));
+}
+
+function visibleHiringRequests(items = [], currentUser) {
+  return sortHiringRequests(items.filter((hiring) => canViewHiringRequest(hiring, currentUser)));
+}
+
+function canViewHiringRequest(hiring, currentUser) {
+  if (currentUser.role === "admin") return true;
+  return hiring.createdBy === currentUser.id;
 }
 
 function sortPersonalTasks(items) {
@@ -2865,6 +3186,7 @@ async function readMultipartBody(request, contentType) {
     responseAttachments: await storeUploadedAttachments(files.responseAttachments || []),
     crmAttachments: await storeUploadedAttachments(files.crmAttachments || []),
     signatureDocument: await storeUploadedAttachments(files.signatureDocument || []),
+    hiringResume: await storeUploadedAttachments(files.hiringResume || []),
   };
 }
 

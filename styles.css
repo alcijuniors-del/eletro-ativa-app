@@ -732,6 +732,7 @@ textarea:focus {
 .personal-tasks-panel,
 .meetings-panel,
 .crm-panel,
+.hirings-panel,
 .signature-panel {
   display: grid;
   gap: 18px;
@@ -785,6 +786,13 @@ textarea:focus {
   background:
     linear-gradient(140deg, rgba(155, 57, 255, 0.18), transparent 34%),
     linear-gradient(320deg, rgba(255, 211, 61, 0.12), transparent 42%),
+    var(--surface);
+}
+
+.hirings-panel {
+  background:
+    linear-gradient(140deg, rgba(255, 211, 61, 0.12), transparent 34%),
+    linear-gradient(320deg, rgba(70, 183, 255, 0.12), transparent 42%),
     var(--surface);
 }
 
@@ -903,6 +911,89 @@ textarea:focus {
   background: #fff;
   object-fit: contain;
   padding: 10px;
+}
+
+.hirings-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.92fr) minmax(0, 1.08fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.hiring-form,
+.hirings-list-panel,
+.hiring-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.hiring-form,
+.hirings-list-panel {
+  padding: 14px;
+}
+
+.hirings-list {
+  display: grid;
+  gap: 10px;
+}
+
+.hiring-card {
+  display: grid;
+  gap: 12px;
+  border-left: 5px solid var(--orange);
+  padding: 12px;
+}
+
+.hiring-aprovada {
+  border-left-color: var(--green);
+}
+
+.hiring-reprovada {
+  border-left-color: var(--red);
+}
+
+.hiring-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.hiring-meta-grid div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 10px;
+}
+
+.hiring-meta-grid span,
+.hiring-meta-grid strong {
+  display: block;
+}
+
+.hiring-meta-grid span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.hiring-meta-grid strong {
+  margin-top: 4px;
+  color: #fff;
+  overflow-wrap: anywhere;
+}
+
+.hiring-decision-form {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.hiring-attachments {
+  display: grid;
+  gap: 10px;
 }
 
 .manager-submit-header {
@@ -2268,6 +2359,7 @@ textarea:focus {
 
   .personal-tasks-layout,
   .crm-layout,
+  .hirings-layout,
   .signature-layout,
   .signature-preview-row {
     grid-template-columns: 1fr;
@@ -2331,6 +2423,7 @@ textarea:focus {
   .metrics,
   .control-strip,
   .form-grid,
+  .hiring-meta-grid,
   .personal-task-tabs,
   .performance-summary-grid,
   .performance-stats,
