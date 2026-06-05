@@ -275,6 +275,30 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/dismissals") {
+    sendJson(response, 200, { ok: true, dismissals: visibleDismissalRequests(data.dismissalRequests, currentUser) });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/dismissals") {
+    await handleCreateDismissalRequest(request, response, data, currentUser);
+    return;
+  }
+
+  const dismissalDecisionMatch = url.pathname.match(/^\/api\/dismissals\/([^/]+)\/decision$/);
+  if (dismissalDecisionMatch && request.method === "PATCH") {
+    requireAdmin(currentUser);
+    await handleDismissalDecision(request, response, data, currentUser, dismissalDecisionMatch[1]);
+    return;
+  }
+
+  const dismissalMatch = url.pathname.match(/^\/api\/dismissals\/([^/]+)$/);
+  if (dismissalMatch && request.method === "DELETE") {
+    requireAdmin(currentUser);
+    await handleDeleteDismissalRequest(response, data, dismissalMatch[1]);
+    return;
+  }
+
   const crmOpportunityMatch = url.pathname.match(/^\/api\/crm-opportunities\/([^/]+)$/);
   if (crmOpportunityMatch && request.method === "PATCH") {
     await handleUpdateCrmOpportunity(request, response, data, currentUser, crmOpportunityMatch[1]);
@@ -657,8 +681,8 @@ async function handleCreateHiringRequest(request, response, data, currentUser) {
   const body = await readRequestBody(request);
   const resumeAttachment = Array.isArray(body.hiringResume) ? body.hiringResume[0] : null;
 
-  if (!resumeAttachment || resumeAttachment.type !== "application/pdf") {
-    sendJson(response, 400, { ok: false, error: "Anexe o curriculo em PDF." });
+  if (!resumeAttachment || !isPdfOrImageAttachment(resumeAttachment)) {
+    sendJson(response, 400, { ok: false, error: "Anexe o curriculo em PDF ou imagem." });
     return;
   }
 
@@ -760,6 +784,119 @@ async function handleDeleteHiringRequest(response, data, hiringId) {
   await deleteStoredAttachments(hiringToDelete);
   await writeData(data);
   sendJson(response, 200, { ok: true, hirings: sortHiringRequests(data.hiringRequests) });
+}
+
+async function handleCreateDismissalRequest(request, response, data, currentUser) {
+  if (!["admin", "manager"].includes(currentUser.role)) {
+    sendJson(response, 403, { ok: false, error: "Acesso restrito a gerentes administrativos." });
+    return;
+  }
+
+  const body = await readRequestBody(request);
+  const documentAttachment = Array.isArray(body.dismissalDocument) ? body.dismissalDocument[0] : null;
+
+  if (!documentAttachment || !isPdfOrImageAttachment(documentAttachment)) {
+    sendJson(response, 400, { ok: false, error: "Anexe documento em PDF ou imagem." });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const dismissal = {
+    id: createId("dismissal"),
+    employeeName: cleanText(body.employeeName, "Colaborador nao informado").slice(0, 120),
+    currentRole: cleanText(body.currentRole, "Funcao nao informada").slice(0, 120),
+    currentSalary: cleanText(body.currentSalary, "Nao informado").slice(0, 80),
+    dismissalReason: cleanText(body.dismissalReason, "").slice(0, 3000),
+    performanceHistory: cleanText(body.performanceHistory, "").slice(0, 3000),
+    warningsAndEvidence: cleanText(body.warningsAndEvidence, "").slice(0, 3000),
+    replacementPlan: cleanText(body.replacementPlan, "").slice(0, 3000),
+    risksAndObservations: cleanText(body.risksAndObservations, "").slice(0, 3000),
+    status: "pendente",
+    documentAttachment,
+    decisionAttachment: null,
+    decisionNote: "",
+    decidedBy: "",
+    decidedByName: "",
+    decidedAt: "",
+    createdBy: currentUser.id,
+    createdByName: currentUser.name,
+    createdByDepartment: currentUser.department,
+    createdAt: now,
+    updatedAt: now,
+    history: [`Solicitacao de demissao registrada em ${formatDateTime(now)} por ${currentUser.name}`],
+  };
+
+  if (!dismissal.employeeName || !dismissal.currentRole || !dismissal.dismissalReason || !dismissal.performanceHistory) {
+    sendJson(response, 400, { ok: false, error: "Preencha colaborador, funcao, motivo e historico/desempenho." });
+    return;
+  }
+
+  data.dismissalRequests = [dismissal, ...data.dismissalRequests];
+  await writeData(data);
+  sendJson(response, 201, {
+    ok: true,
+    dismissal,
+    dismissals: visibleDismissalRequests(data.dismissalRequests, currentUser),
+  });
+}
+
+async function handleDismissalDecision(request, response, data, currentUser, dismissalId) {
+  const body = await readRequestBody(request);
+  const index = data.dismissalRequests.findIndex((item) => item.id === dismissalId);
+
+  if (index === -1) {
+    sendJson(response, 404, { ok: false, error: "Solicitacao de demissao nao encontrada." });
+    return;
+  }
+
+  const previous = data.dismissalRequests[index];
+  const decision = normalizeHiringDecision(body.decision);
+  if (!decision) {
+    sendJson(response, 400, { ok: false, error: "Informe se foi aprovado ou reprovado." });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const decisionNote = cleanText(body.decisionNote, "").slice(0, 3000);
+  const decisionAttachment = await createDismissalDecisionPdfAttachment(previous, decision, decisionNote, now);
+  const status = decision === "approved" ? "aprovada" : "reprovada";
+  const history = Array.isArray(previous.history) ? [...previous.history] : [];
+  history.push(`${status === "aprovada" ? "Aprovada" : "Reprovada"} em ${formatDateTime(now)} por ALCI JR.`);
+
+  const dismissal = {
+    ...previous,
+    status,
+    decisionAttachment,
+    decisionNote,
+    decidedBy: currentUser.id,
+    decidedByName: "ALCI JR.",
+    decidedAt: now,
+    updatedAt: now,
+    history,
+  };
+
+  data.dismissalRequests[index] = dismissal;
+  await writeData(data);
+  sendJson(response, 200, {
+    ok: true,
+    dismissal,
+    dismissals: visibleDismissalRequests(data.dismissalRequests, currentUser),
+  });
+}
+
+async function handleDeleteDismissalRequest(response, data, dismissalId) {
+  const dismissalToDelete = data.dismissalRequests.find((item) => item.id === dismissalId);
+  const before = data.dismissalRequests.length;
+  data.dismissalRequests = data.dismissalRequests.filter((item) => item.id !== dismissalId);
+
+  if (data.dismissalRequests.length === before) {
+    sendJson(response, 404, { ok: false, error: "Solicitacao de demissao nao encontrada." });
+    return;
+  }
+
+  await deleteStoredAttachments(dismissalToDelete);
+  await writeData(data);
+  sendJson(response, 200, { ok: true, dismissals: sortDismissalRequests(data.dismissalRequests) });
 }
 
 async function buildCrmOpportunity(data, body, currentUser) {
@@ -1346,7 +1483,8 @@ async function handleAttachmentDownload(response, data, currentUser, attachmentI
     findAttachmentRecord(data.requests, currentUser, attachmentId) ||
     findVisibleCrmAttachmentRecord(data.crmOpportunities, currentUser, attachmentId) ||
     findSignatureAttachmentRecord(data.signatureRecords, currentUser, attachmentId) ||
-    findVisibleHiringAttachmentRecord(data.hiringRequests, currentUser, attachmentId);
+    findVisibleHiringAttachmentRecord(data.hiringRequests, currentUser, attachmentId) ||
+    findVisibleDismissalAttachmentRecord(data.dismissalRequests, currentUser, attachmentId);
 
   if (!match) {
     sendJson(response, 404, { ok: false, error: "Anexo nao encontrado." });
@@ -1580,6 +1718,7 @@ function buildStatePayload(data, currentUser, request = null) {
     crmOpportunities: visibleCrmOpportunities(data.crmOpportunities, currentUser),
     signatureRecords: isAdmin ? sortSignatureRecords(data.signatureRecords) : [],
     hiringRequests: visibleHiringRequests(data.hiringRequests, currentUser),
+    dismissalRequests: visibleDismissalRequests(data.dismissalRequests, currentUser),
     emailMode: isAdmin ? emailModeStatus(request) : null,
   };
 }
@@ -1614,6 +1753,7 @@ async function readData() {
     crmEmailImports: Array.isArray(parsed.crmEmailImports) ? parsed.crmEmailImports : [],
     signatureRecords: Array.isArray(parsed.signatureRecords) ? parsed.signatureRecords : [],
     hiringRequests: Array.isArray(parsed.hiringRequests) ? parsed.hiringRequests : [],
+    dismissalRequests: Array.isArray(parsed.dismissalRequests) ? parsed.dismissalRequests : [],
   };
   const migrated = await migrateLegacyAttachments(data.requests);
   const migratedHighPriorityDueDates = migrateHighPriorityDueDates(data.requests);
@@ -1746,6 +1886,7 @@ async function ensureDataFile() {
     crmEmailImports: [],
     signatureRecords: [],
     hiringRequests: [],
+    dismissalRequests: [],
   };
 
   await writeData(initialData);
@@ -2377,12 +2518,15 @@ function signedPdfName(documentName) {
 async function createHiringDecisionPdfAttachment(hiring, decision, decisionNote, decidedAt) {
   const source = await attachmentBuffer(hiring.resumeAttachment);
   if (!source) {
-    const error = new Error("Nao foi possivel ler o curriculo em PDF.");
+    const error = new Error("Nao foi possivel ler o curriculo.");
     error.status = 400;
     throw error;
   }
 
-  const pdfDoc = await PDFDocument.load(source.buffer);
+  const sourceType = String(hiring.resumeAttachment.type || source.mimeType || "").toLowerCase();
+  const pdfDoc = sourceType === "application/pdf"
+    ? await PDFDocument.load(source.buffer)
+    : await imageDocumentToPdf(source.buffer, sourceType);
   const page = pdfDoc.getPages().at(-1);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -2479,6 +2623,83 @@ function drawHiringDecisionSummary(page, font, boldFont, hiring, decisionLabel, 
 function hiringDecisionPdfName(candidateName, decisionLabel) {
   const baseName = cleanText(candidateName, "candidato").replace(/\.[a-z0-9]+$/i, "").slice(0, 70);
   return `${baseName || "candidato"} - ${decisionLabel.toLowerCase()} por ALCI JR.pdf`;
+}
+
+async function createDismissalDecisionPdfAttachment(dismissal, decision, decisionNote, decidedAt) {
+  const source = await attachmentBuffer(dismissal.documentAttachment);
+  if (!source) {
+    const error = new Error("Nao foi possivel ler o documento da demissao.");
+    error.status = 400;
+    throw error;
+  }
+
+  const sourceType = String(dismissal.documentAttachment.type || source.mimeType || "").toLowerCase();
+  const pdfDoc = sourceType === "application/pdf"
+    ? await PDFDocument.load(source.buffer)
+    : await imageDocumentToPdf(source.buffer, sourceType);
+  const page = pdfDoc.getPages().at(-1);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const { width } = page.getSize();
+  const decisionText = decision === "approved" ? "DEMISSAO APROVADA POR ALCI JR." : "DEMISSAO REPROVADA POR ALCI JR.";
+  const decisionLabel = decision === "approved" ? "Aprovada" : "Reprovada";
+  const stampWidth = Math.min(275, width * 0.46);
+  const stampX = Math.max(36, width - stampWidth - 36);
+  const stampY = 44;
+
+  page.drawRectangle({
+    x: stampX - 10,
+    y: stampY - 12,
+    width: stampWidth + 20,
+    height: 92,
+    borderWidth: 1.2,
+    borderColor: rgb(0, 0, 0),
+    color: rgb(1, 1, 1),
+    opacity: 0.92,
+  });
+  page.drawText(decisionText, { x: stampX, y: stampY + 52, size: 10.5, font: boldFont, color: rgb(0, 0, 0) });
+  page.drawText(`Data: ${formatDateTime(decidedAt)}`, { x: stampX, y: stampY + 36, size: 8.5, font, color: rgb(0, 0, 0) });
+  page.drawText(`Funcao: ${truncateForPdf(dismissal.currentRole, 34)}`, { x: stampX, y: stampY + 22, size: 8.5, font, color: rgb(0, 0, 0) });
+  page.drawText(`Colaborador: ${truncateForPdf(dismissal.employeeName, 30)}`, { x: stampX, y: stampY + 8, size: 8.5, font, color: rgb(0, 0, 0) });
+
+  if (decisionNote) {
+    const notePage = pdfDoc.addPage([595.28, 841.89]);
+    drawDismissalDecisionSummary(notePage, font, boldFont, dismissal, decisionLabel, decisionNote, decidedAt);
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  return storeGeneratedPdfAttachment(Buffer.from(pdfBytes), dismissalDecisionPdfName(dismissal.employeeName, decisionLabel));
+}
+
+function drawDismissalDecisionSummary(page, font, boldFont, dismissal, decisionLabel, decisionNote, decidedAt) {
+  const left = 52;
+  let y = 780;
+  page.drawText(`Demissao ${decisionLabel} por ALCI JR.`, { x: left, y, size: 18, font: boldFont, color: rgb(0, 0, 0) });
+  y -= 34;
+
+  [
+    ["Colaborador", dismissal.employeeName],
+    ["Funcao", dismissal.currentRole],
+    ["Salario atual", dismissal.currentSalary],
+    ["Data da decisao", formatDateTime(decidedAt)],
+  ].forEach(([label, value]) => {
+    page.drawText(`${label}:`, { x: left, y, size: 10, font: boldFont, color: rgb(0, 0, 0) });
+    page.drawText(truncateForPdf(value, 72), { x: left + 150, y, size: 10, font, color: rgb(0, 0, 0) });
+    y -= 20;
+  });
+
+  y -= 10;
+  page.drawText("Observacao da decisao:", { x: left, y, size: 12, font: boldFont, color: rgb(0, 0, 0) });
+  y -= 18;
+  wrapPdfText(decisionNote, 88).slice(0, 22).forEach((line) => {
+    page.drawText(line, { x: left, y, size: 10, font, color: rgb(0, 0, 0) });
+    y -= 15;
+  });
+}
+
+function dismissalDecisionPdfName(employeeName, decisionLabel) {
+  const baseName = cleanText(employeeName, "colaborador").replace(/\.[a-z0-9]+$/i, "").slice(0, 70);
+  return `${baseName || "colaborador"} - demissao ${decisionLabel.toLowerCase()} por ALCI JR.pdf`;
 }
 
 function truncateForPdf(value = "", maxLength = 72) {
@@ -2781,6 +3002,17 @@ function findVisibleHiringAttachmentRecord(hiringRequests, currentUser, attachme
   return null;
 }
 
+function findVisibleDismissalAttachmentRecord(dismissalRequests, currentUser, attachmentId) {
+  for (const dismissal of dismissalRequests) {
+    if (!canViewDismissalRequest(dismissal, currentUser)) continue;
+    const attachments = [dismissal.documentAttachment, dismissal.decisionAttachment].filter(Boolean);
+    const attachment = attachments.find((item) => item.id === attachmentId);
+    if (attachment) return { dismissal, attachment };
+  }
+
+  return null;
+}
+
 function canViewCrmOpportunity(opportunity, currentUser) {
   if (currentUser.role === "admin") return true;
   return currentUser.role === "seller" && opportunity.ownerId === currentUser.id;
@@ -2797,6 +3029,11 @@ function canViewRequestAttachment(taskRequest, currentUser) {
 
 function isPdfMime(type) {
   return String(type || "").toLowerCase() === "application/pdf";
+}
+
+function isPdfOrImageAttachment(attachment) {
+  const type = String(attachment?.type || "").toLowerCase();
+  return type === "application/pdf" || type.startsWith("image/");
 }
 
 function encodeHeaderFileName(fileName) {
@@ -2894,6 +3131,33 @@ function visibleHiringRequests(items = [], currentUser) {
 function canViewHiringRequest(hiring, currentUser) {
   if (currentUser.role === "admin") return true;
   return hiring.createdBy === currentUser.id;
+}
+
+function sortDismissalRequests(items = []) {
+  const statusWeight = {
+    pendente: 1,
+    aprovada: 2,
+    reprovada: 3,
+  };
+
+  return [...items].sort((left, right) => {
+    const statusDiff = (statusWeight[left.status] || 99) - (statusWeight[right.status] || 99);
+    if (statusDiff !== 0) return statusDiff;
+
+    const updatedDiff = new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
+    if (updatedDiff !== 0) return updatedDiff;
+
+    return String(right.id || "").localeCompare(String(left.id || ""));
+  });
+}
+
+function visibleDismissalRequests(items = [], currentUser) {
+  return sortDismissalRequests(items.filter((dismissal) => canViewDismissalRequest(dismissal, currentUser)));
+}
+
+function canViewDismissalRequest(dismissal, currentUser) {
+  if (currentUser.role === "admin") return true;
+  return dismissal.createdBy === currentUser.id;
 }
 
 function sortPersonalTasks(items) {
@@ -3187,6 +3451,7 @@ async function readMultipartBody(request, contentType) {
     crmAttachments: await storeUploadedAttachments(files.crmAttachments || []),
     signatureDocument: await storeUploadedAttachments(files.signatureDocument || []),
     hiringResume: await storeUploadedAttachments(files.hiringResume || []),
+    dismissalDocument: await storeUploadedAttachments(files.dismissalDocument || []),
   };
 }
 

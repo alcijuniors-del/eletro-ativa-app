@@ -733,6 +733,7 @@ textarea:focus {
 .meetings-panel,
 .crm-panel,
 .hirings-panel,
+.dismissals-panel,
 .signature-panel {
   display: grid;
   gap: 18px;
@@ -793,6 +794,13 @@ textarea:focus {
   background:
     linear-gradient(140deg, rgba(255, 211, 61, 0.12), transparent 34%),
     linear-gradient(320deg, rgba(70, 183, 255, 0.12), transparent 42%),
+    var(--surface);
+}
+
+.dismissals-panel {
+  background:
+    linear-gradient(140deg, rgba(255, 90, 95, 0.12), transparent 34%),
+    linear-gradient(320deg, rgba(255, 211, 61, 0.1), transparent 42%),
     var(--surface);
 }
 
