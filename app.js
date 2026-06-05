@@ -48,9 +48,36 @@ const materialListDeadlineLabels = {
 
 const roleLabels = {
   admin: "Administrador",
+  director: "Diretor",
   manager: "Gerente",
   seller: "Vendedor",
   engineer: "Engenheiro",
+  team_lead: "Líder de Equipe",
+  counter_lead: "Líder Balconista",
+  separator: "Separador",
+  checker: "Conferente",
+  deliverer: "Entregador",
+};
+
+const separationStatusLabels = {
+  pdf_recebido: "PDF Recebido",
+  ia_processando: "IA Processando",
+  aguardando_separacao: "Aguardando Separação",
+  em_separacao: "Em Separação",
+  separado: "Separado",
+  em_conferencia: "Em Conferência",
+  conferido: "Conferido",
+  embalado: "Embalado",
+  lacrado: "Lacrado",
+  com_falta: "Com Falta",
+  aguardando_transferencia: "Aguardando Transferência",
+  material_pronto: "Material Pronto",
+  aguardando_nf: "Aguardando NF",
+  aguardando_localizacao: "Aguardando Localização",
+  entrega_programada: "Entrega Programada",
+  em_rota: "Em Rota",
+  entregue: "Entregue",
+  finalizado: "Finalizado",
 };
 
 const unitLabels = {
@@ -132,6 +159,8 @@ let crmOpportunities = [];
 let signatureRecords = [];
 let hiringRequests = [];
 let dismissalRequests = [];
+let separationRequests = [];
+let internalNotifications = [];
 let emailMode = null;
 let currentUser = null;
 let selectedId = null;
@@ -175,6 +204,7 @@ const elements = {
   personalTasksButton: document.querySelector("#personal-tasks-button"),
   meetingsViewButton: document.querySelector("#meetings-view-button"),
   crmViewButton: document.querySelector("#crm-view-button"),
+  separationViewButton: document.querySelector("#separation-view-button"),
   hiringsViewButton: document.querySelector("#hirings-view-button"),
   dismissalsViewButton: document.querySelector("#dismissals-view-button"),
   signatureViewButton: document.querySelector("#signature-view-button"),
@@ -272,6 +302,20 @@ const elements = {
   emailModeStatus: document.querySelector("#email-mode-status"),
   emailModeText: document.querySelector("#email-mode-text"),
   emailModeUrl: document.querySelector("#email-mode-url"),
+  separationPanel: document.querySelector("#separation-panel"),
+  separationForm: document.querySelector("#separation-form"),
+  separationRequestType: document.querySelector("#separation-request-type"),
+  separationTitle: document.querySelector("#separation-title"),
+  separationCount: document.querySelector("#separation-count"),
+  separationSummary: document.querySelector("#separation-summary"),
+  separationList: document.querySelector("#separation-list"),
+  separationEmptyState: document.querySelector("#separation-empty-state"),
+  separationMetricSeparating: document.querySelector("#sep-metric-separating"),
+  separationMetricChecked: document.querySelector("#sep-metric-checked"),
+  separationMetricLate: document.querySelector("#sep-metric-late"),
+  separationMetricMissing: document.querySelector("#sep-metric-missing"),
+  separationMetricDeliveries: document.querySelector("#sep-metric-deliveries"),
+  separationMetricAverage: document.querySelector("#sep-metric-average"),
   signaturePanel: document.querySelector("#signature-panel"),
   signatureForm: document.querySelector("#signature-form"),
   signaturePad: document.querySelector("#signature-pad"),
@@ -370,6 +414,8 @@ async function loadSession() {
     signatureRecords = [];
     hiringRequests = [];
     dismissalRequests = [];
+    separationRequests = [];
+    internalNotifications = [];
     emailMode = null;
     selectedId = null;
   }
@@ -395,6 +441,8 @@ function applyState(payload) {
   signatureRecords = Array.isArray(payload.signatureRecords) ? payload.signatureRecords : signatureRecords;
   hiringRequests = Array.isArray(payload.hiringRequests) ? payload.hiringRequests : hiringRequests;
   dismissalRequests = Array.isArray(payload.dismissalRequests) ? payload.dismissalRequests : dismissalRequests;
+  separationRequests = Array.isArray(payload.separationRequests) ? payload.separationRequests : separationRequests;
+  internalNotifications = Array.isArray(payload.notifications) ? payload.notifications : internalNotifications;
   emailMode = payload.emailMode ?? emailMode;
 
   if (!requests.some((request) => request.id === selectedId)) {
@@ -424,6 +472,8 @@ async function apiFetch(path, options = {}) {
       signatureRecords = [];
       hiringRequests = [];
       dismissalRequests = [];
+      separationRequests = [];
+      internalNotifications = [];
       emailMode = null;
       renderAuth();
     }
@@ -669,6 +719,7 @@ function renderAdminView() {
   const showingPersonalTasks = adminView === "personal";
   const showingMeetings = adminView === "meetings";
   const showingCrm = adminView === "crm";
+  const showingSeparation = adminView === "separation";
   const showingSignatures = adminView === "signatures";
   const showingHirings = adminView === "hirings";
   const showingDismissals = adminView === "dismissals";
@@ -681,6 +732,7 @@ function renderAdminView() {
   elements.personalTasksPanel.classList.toggle("hidden", !showingPersonalTasks);
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
   elements.crmPanel.classList.toggle("hidden", !showingCrm);
+  elements.separationPanel.classList.toggle("hidden", !showingSeparation);
   elements.signaturePanel.classList.toggle("hidden", !showingSignatures);
   elements.hiringsPanel.classList.toggle("hidden", !showingHirings);
   elements.dismissalsPanel.classList.toggle("hidden", !showingDismissals);
@@ -691,6 +743,8 @@ function renderAdminView() {
   elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
   elements.crmViewButton.classList.remove("hidden");
   elements.crmViewButton.classList.toggle("active-view-button", showingCrm);
+  elements.separationViewButton.classList.remove("hidden");
+  elements.separationViewButton.classList.toggle("active-view-button", showingSeparation);
   elements.hiringsViewButton.classList.remove("hidden");
   elements.hiringsViewButton.classList.toggle("active-view-button", showingHirings);
   elements.dismissalsViewButton.classList.remove("hidden");
@@ -715,6 +769,13 @@ function renderAdminView() {
     elements.appEyebrow.textContent = "Comercial";
     elements.appTitle.textContent = "CRM de vendas";
     renderCrm();
+    return;
+  }
+
+  if (showingSeparation) {
+    elements.appEyebrow.textContent = "Estoque";
+    elements.appTitle.textContent = "Separação";
+    renderSeparation();
     return;
   }
 
@@ -757,31 +818,35 @@ function renderAdminView() {
 
 function renderManagerView() {
   if (isAdmin()) return;
-  if (currentUser.role === "seller") {
+  if (currentUser.role === "seller" && !["crm", "separation"].includes(managerWorkspace)) {
     managerWorkspace = "crm";
   }
 
   const showingMeetings = managerWorkspace === "meetings";
   const showingCrm = managerWorkspace === "crm";
+  const showingSeparation = managerWorkspace === "separation";
   const showingHirings = managerWorkspace === "hirings";
   const showingDismissals = managerWorkspace === "dismissals";
-  elements.managerPanel.classList.toggle("hidden", showingMeetings || showingCrm || showingHirings || showingDismissals || currentUser.role === "engineer");
-  elements.managerHistoryPanel.classList.toggle("hidden", showingMeetings || showingCrm || showingHirings || showingDismissals);
+  elements.managerPanel.classList.toggle("hidden", showingMeetings || showingCrm || showingSeparation || showingHirings || showingDismissals || currentUser.role === "engineer");
+  elements.managerHistoryPanel.classList.toggle("hidden", showingMeetings || showingCrm || showingSeparation || showingHirings || showingDismissals);
   elements.performancePanel.classList.add("hidden");
   elements.personalTasksPanel.classList.add("hidden");
   elements.meetingsPanel.classList.toggle("hidden", !showingMeetings);
   elements.crmPanel.classList.toggle("hidden", !showingCrm);
+  elements.separationPanel.classList.toggle("hidden", !showingSeparation);
   elements.signaturePanel.classList.add("hidden");
   elements.hiringsPanel.classList.toggle("hidden", !showingHirings);
   elements.dismissalsPanel.classList.toggle("hidden", !showingDismissals);
   elements.requestsViewButton.classList.toggle("hidden", currentUser.role === "seller");
   elements.meetingsViewButton.classList.toggle("hidden", currentUser.role === "seller");
   elements.crmViewButton.classList.toggle("hidden", currentUser.role !== "seller");
+  elements.separationViewButton.classList.toggle("hidden", false);
   elements.hiringsViewButton.classList.toggle("hidden", currentUser.role === "seller" || currentUser.role === "engineer");
   elements.dismissalsViewButton.classList.toggle("hidden", currentUser.role === "seller" || currentUser.role === "engineer");
-  elements.requestsViewButton.classList.toggle("active-view-button", !showingMeetings && !showingCrm && !showingHirings && !showingDismissals);
+  elements.requestsViewButton.classList.toggle("active-view-button", !showingMeetings && !showingCrm && !showingSeparation && !showingHirings && !showingDismissals);
   elements.meetingsViewButton.classList.toggle("active-view-button", showingMeetings);
   elements.crmViewButton.classList.toggle("active-view-button", showingCrm);
+  elements.separationViewButton.classList.toggle("active-view-button", showingSeparation);
   elements.hiringsViewButton.classList.toggle("active-view-button", showingHirings);
   elements.dismissalsViewButton.classList.toggle("active-view-button", showingDismissals);
 
@@ -796,6 +861,13 @@ function renderManagerView() {
     elements.appEyebrow.textContent = "Área do vendedor";
     elements.appTitle.textContent = "Minhas vendas";
     renderCrm();
+    return;
+  }
+
+  if (showingSeparation) {
+    elements.appEyebrow.textContent = "Estoque";
+    elements.appTitle.textContent = "Separação";
+    renderSeparation();
     return;
   }
 
@@ -3713,6 +3785,193 @@ async function deleteDismissalRequest(dismissalId) {
   }
 }
 
+function renderSeparation() {
+  const records = Array.isArray(separationRequests) ? separationRequests : [];
+  const canCreate = ["seller", "admin", "manager", "director"].includes(currentUser.role);
+  elements.separationTitle.textContent = isAdmin() ? "Painel de separação" : "Minhas separações";
+  elements.separationCount.textContent = `${records.length} pedido${records.length === 1 ? "" : "s"}`;
+  elements.separationForm.classList.toggle("hidden", !canCreate);
+  elements.separationList.innerHTML = "";
+  elements.separationEmptyState.classList.toggle("hidden", records.length > 0);
+  renderSeparationMetrics(records);
+
+  records.forEach((record) => {
+    const card = document.createElement("article");
+    card.className = `separation-card priority-${record.priority}`;
+    card.innerHTML = separationCardMarkup(record);
+    elements.separationList.append(card);
+  });
+}
+
+function renderSeparationMetrics(records) {
+  elements.separationMetricSeparating.textContent = records.filter((item) => ["aguardando_separacao", "em_separacao"].includes(item.status)).length;
+  elements.separationMetricChecked.textContent = records.filter((item) => ["conferido", "embalado", "lacrado", "material_pronto"].includes(item.status)).length;
+  elements.separationMetricLate.textContent = records.filter(isSeparationLate).length;
+  elements.separationMetricMissing.textContent = records.filter((item) => item.status === "com_falta").length;
+  elements.separationMetricDeliveries.textContent = records.filter((item) => ["em_rota", "entregue", "finalizado"].includes(item.status)).length;
+  elements.separationMetricAverage.textContent = `${averageSeparationHours(records)}h`;
+}
+
+function separationCardMarkup(record) {
+  const products = Array.isArray(record.products) ? record.products : [];
+  const history = Array.isArray(record.history) ? record.history : [];
+  const canEdit = canEditSeparation(record);
+  return `
+    <div class="request-title-row">
+      <div>
+        <strong>${escapeHtml(record.customerName)}</strong>
+        <span class="manager-request-date">Orçamento ${escapeHtml(record.budgetNumber || "não identificado")} · ${formatDateTime(record.createdAt)}</span>
+      </div>
+      <span class="status-pill ${separationStatusClass(record.status)}">${escapeHtml(separationStatusLabels[record.status] || record.status)}</span>
+    </div>
+    <div class="hiring-meta-grid">
+      <div><span>Vendedor</span><strong>${escapeHtml(record.sellerName)}</strong></div>
+      <div><span>Loja</span><strong>${escapeHtml(record.store)}</strong></div>
+      <div><span>Tipo</span><strong>${escapeHtml(separationTypeLabel(record.requestType))}</strong></div>
+      <div><span>Valor</span><strong>${escapeHtml(record.totalValue || "Não lido")}</strong></div>
+    </div>
+    <p class="request-description">${escapeHtml(record.observation || record.aiObservations || "Sem observação.")}</p>
+    ${record.urgentJustification ? `<p class="request-description"><strong>Prazo menor que 3 dias:</strong> ${escapeHtml(record.urgentJustification)} · Aprovação líder: ${escapeHtml(record.leaderApprovalStatus)}</p>` : ""}
+    ${products.length ? `
+      <details class="compact-details">
+        <summary>Produtos lidos pela IA (${products.length})</summary>
+        <div class="separation-products">
+          ${products.slice(0, 12).map((item) => `<span>${escapeHtml(item.code)} · ${escapeHtml(item.quantity)} · ${escapeHtml(item.description)}</span>`).join("")}
+        </div>
+      </details>
+    ` : '<p class="muted-line">IA não identificou produtos estruturados neste PDF.</p>'}
+    <div class="hiring-attachments">
+      ${attachmentsMarkup(record.pdfAttachment ? [record.pdfAttachment] : [], "PDF do orçamento")}
+      ${attachmentsMarkup(record.invoiceAttachment ? [record.invoiceAttachment] : [], "NF anexada")}
+    </div>
+    ${canEdit ? separationUpdateFormMarkup(record) : ""}
+    <details class="compact-details">
+      <summary>Histórico (${history.length})</summary>
+      <ol class="history-list">
+        ${history.map((entry) => `<li>${escapeHtml(formatDateTime(entry.createdAt))} · ${escapeHtml(entry.userName)} · ${escapeHtml(separationStatusLabels[entry.previousStatus] || entry.previousStatus || "início")} → ${escapeHtml(separationStatusLabels[entry.nextStatus] || entry.nextStatus)} · ${escapeHtml(entry.comment || "")}</li>`).join("")}
+      </ol>
+    </details>
+  `;
+}
+
+function separationUpdateFormMarkup(record) {
+  return `
+    <form class="hiring-decision-form" data-separation-update-form="${escapeHtml(record.id)}">
+      <div class="form-grid">
+        <label>
+          Status
+          <select name="status">
+            ${Object.entries(separationStatusLabels).map(([value, label]) => `<option value="${value}" ${record.status === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}
+          </select>
+        </label>
+        <label>
+          Aprovação do líder
+          <select name="leaderApprovalStatus">
+            <option value="nao_necessario" ${record.leaderApprovalStatus === "nao_necessario" ? "selected" : ""}>Não necessário</option>
+            <option value="pendente" ${record.leaderApprovalStatus === "pendente" ? "selected" : ""}>Pendente</option>
+            <option value="aprovado" ${record.leaderApprovalStatus === "aprovado" ? "selected" : ""}>Aprovado</option>
+            <option value="reprovado" ${record.leaderApprovalStatus === "reprovado" ? "selected" : ""}>Reprovado</option>
+          </select>
+        </label>
+        <label>
+          Localização
+          <input name="location" type="text" value="${escapeHtml(record.location || "")}" placeholder="Rua, bairro, cidade, referência" />
+        </label>
+        <label>
+          Horário de entrega
+          <input name="deliveryAt" type="datetime-local" value="${escapeHtml(datetimeLocalValue(record.deliveryAt))}" />
+        </label>
+        <label class="form-wide file-field">
+          NF para liberar entrega
+          <input name="separationInvoice" type="file" accept="application/pdf,image/*" />
+          <span class="input-hint">Obrigatória para programar entrega.</span>
+        </label>
+        <label class="form-wide">
+          Comentário
+          <textarea name="comment" rows="2" placeholder="Explique a movimentação, falta, conferência ou entrega."></textarea>
+        </label>
+      </div>
+      <div class="manager-card-actions">
+        <button class="primary-button" type="submit">Atualizar</button>
+      </div>
+    </form>
+  `;
+}
+
+async function createSeparationRequest(formData) {
+  try {
+    const payload = new FormData();
+    ["customerName", "store", "requestType", "observation", "priority", "desiredDate", "desiredDeliveryAt", "urgentJustification"].forEach((field) => {
+      payload.set(field, formData.get(field)?.trim() || "");
+    });
+    await appendAttachmentsToPayload(payload, formData.getAll("separationPdf"), "separationPdf");
+    const result = await apiFetch("/api/separations", formRequest("POST", payload));
+    separationRequests = result.separations;
+    elements.separationForm.reset();
+    resetFileFieldStates(elements.separationForm);
+    renderSeparation();
+    showToast("Solicitação de separação enviada.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function updateSeparationRequest(form) {
+  try {
+    const payload = new FormData();
+    payload.set("status", form.elements.status.value);
+    payload.set("leaderApprovalStatus", form.elements.leaderApprovalStatus.value);
+    payload.set("location", form.elements.location.value.trim());
+    payload.set("deliveryAt", form.elements.deliveryAt.value);
+    payload.set("comment", form.elements.comment.value.trim());
+    await appendAttachmentsToPayload(payload, Array.from(form.elements.separationInvoice.files || []), "separationInvoice");
+    const result = await apiFetch(`/api/separations/${encodeURIComponent(form.dataset.separationUpdateForm)}`, formRequest("PATCH", payload));
+    separationRequests = result.separations;
+    renderSeparation();
+    showToast("Separação atualizada.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function canEditSeparation(record) {
+  if (["admin", "director", "manager"].includes(currentUser.role)) return true;
+  return record.assignedRole === currentUser.role || record.assignedUserId === currentUser.id;
+}
+
+function separationTypeLabel(value) {
+  return {
+    balcao: "Balcão",
+    lider_equipe: "Líder de Equipe",
+    entrega: "Entrega",
+  }[value] || "Balcão";
+}
+
+function separationStatusClass(status) {
+  if (["entregue", "finalizado", "material_pronto", "conferido"].includes(status)) return "status-resolvida";
+  if (["com_falta", "aguardando_transferencia", "aguardando_nf", "aguardando_localizacao"].includes(status)) return "status-nova";
+  return "status-andamento";
+}
+
+function isSeparationLate(record) {
+  return record.desiredDate && !["entregue", "finalizado"].includes(record.status) && record.desiredDate < todayIso();
+}
+
+function averageSeparationHours(records) {
+  const closed = records.filter((item) => item.completedAt);
+  if (!closed.length) return 0;
+  const total = closed.reduce((sum, item) => sum + Math.max(0, new Date(item.completedAt) - new Date(item.createdAt)), 0);
+  return Math.round(total / closed.length / 36e5);
+}
+
+function datetimeLocalValue(value = "") {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
 function printSelectedRequest() {
   if (!selectedId) return;
   printRequestPdf(selectedId);
@@ -4155,6 +4414,8 @@ async function logout() {
   signatureRecords = [];
   hiringRequests = [];
   dismissalRequests = [];
+  separationRequests = [];
+  internalNotifications = [];
   emailMode = null;
   selectedId = null;
   adminView = "requests";
@@ -4483,6 +4744,16 @@ function bindEvents() {
     renderManagerView();
   });
 
+  elements.separationViewButton.addEventListener("click", () => {
+    if (isAdmin()) {
+      adminView = "separation";
+      renderAdminView();
+      return;
+    }
+    managerWorkspace = "separation";
+    renderManagerView();
+  });
+
   elements.hiringsViewButton.addEventListener("click", () => {
     if (isAdmin()) {
       adminView = "hirings";
@@ -4573,6 +4844,11 @@ function bindEvents() {
     await createCrmOpportunity(new FormData(elements.crmForm));
   });
 
+  elements.separationForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await createSeparationRequest(new FormData(elements.separationForm));
+  });
+
   elements.signatureForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await createSignatureRecord(new FormData(elements.signatureForm));
@@ -4657,6 +4933,13 @@ function bindEvents() {
     const deleteButton = event.target.closest("[data-delete-crm]");
     if (!deleteButton) return;
     deleteCrmOpportunity(deleteButton.dataset.deleteCrm);
+  });
+
+  elements.separationList.addEventListener("submit", (event) => {
+    const form = event.target.closest("[data-separation-update-form]");
+    if (!form) return;
+    event.preventDefault();
+    updateSeparationRequest(form);
   });
 
   elements.personalTaskTabs.forEach((button) => {

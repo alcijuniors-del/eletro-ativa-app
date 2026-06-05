@@ -732,6 +732,7 @@ textarea:focus {
 .personal-tasks-panel,
 .meetings-panel,
 .crm-panel,
+.separation-panel,
 .hirings-panel,
 .dismissals-panel,
 .signature-panel {
@@ -780,6 +781,13 @@ textarea:focus {
   background:
     linear-gradient(140deg, rgba(70, 183, 255, 0.12), transparent 34%),
     linear-gradient(320deg, rgba(54, 226, 154, 0.1), transparent 42%),
+    var(--surface);
+}
+
+.separation-panel {
+  background:
+    linear-gradient(140deg, rgba(255, 211, 61, 0.1), transparent 34%),
+    linear-gradient(320deg, rgba(70, 183, 255, 0.12), transparent 42%),
     var(--surface);
 }
 
@@ -1886,6 +1894,84 @@ textarea:focus {
   margin: 4px 0;
 }
 
+.separation-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.88fr) minmax(0, 1.12fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.separation-form,
+.separation-list-panel,
+.separation-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.separation-form,
+.separation-list-panel {
+  padding: 14px;
+}
+
+.separation-list {
+  display: grid;
+  gap: 10px;
+}
+
+.separation-card {
+  display: grid;
+  gap: 12px;
+  border-left: 5px solid var(--blue);
+  padding: 12px;
+}
+
+.separation-card.priority-alta {
+  border-left-color: var(--red);
+}
+
+.separation-card.priority-media {
+  border-left-color: var(--orange);
+}
+
+.separation-card.priority-baixa {
+  border-left-color: var(--blue);
+}
+
+.compact-details {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+  padding: 10px;
+}
+
+.compact-details summary {
+  cursor: pointer;
+  color: #fff;
+  font-weight: 900;
+}
+
+.separation-products {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.separation-products span {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.35;
+  padding: 8px;
+}
+
+.separation-card .history-list {
+  margin-top: 10px;
+}
+
 .personal-resolution-box {
   display: grid;
   gap: 8px;
@@ -2367,6 +2453,7 @@ textarea:focus {
 
   .personal-tasks-layout,
   .crm-layout,
+  .separation-layout,
   .hirings-layout,
   .signature-layout,
   .signature-preview-row {

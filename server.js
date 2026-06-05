@@ -105,6 +105,40 @@ const crmStatusLabels = {
   perdido: "Perdido",
 };
 
+const separationStatusLabels = {
+  pdf_recebido: "PDF Recebido",
+  ia_processando: "IA Processando",
+  aguardando_separacao: "Aguardando Separação",
+  em_separacao: "Em Separação",
+  separado: "Separado",
+  em_conferencia: "Em Conferência",
+  conferido: "Conferido",
+  embalado: "Embalado",
+  lacrado: "Lacrado",
+  com_falta: "Com Falta",
+  aguardando_transferencia: "Aguardando Transferência",
+  material_pronto: "Material Pronto",
+  aguardando_nf: "Aguardando NF",
+  aguardando_localizacao: "Aguardando Localização",
+  entrega_programada: "Entrega Programada",
+  em_rota: "Em Rota",
+  entregue: "Entregue",
+  finalizado: "Finalizado",
+};
+
+const separationStatusSet = new Set(Object.keys(separationStatusLabels));
+
+const separationRoleLabels = {
+  director: "Diretor",
+  manager: "Gerente",
+  seller: "Vendedor",
+  team_lead: "Líder de Equipe",
+  counter_lead: "Líder Balconista",
+  separator: "Separador",
+  checker: "Conferente",
+  deliverer: "Entregador",
+};
+
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
@@ -218,6 +252,31 @@ async function handleApi(request, response, url) {
 
   if (request.method === "POST" && url.pathname === "/api/requests") {
     await handleCreateRequest(request, response, data, currentUser);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/separations") {
+    sendJson(response, 200, { ok: true, separations: visibleSeparationRequests(data.separationRequests, currentUser) });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/separations") {
+    await handleCreateSeparationRequest(request, response, data, currentUser);
+    return;
+  }
+
+  const separationMatch = url.pathname.match(/^\/api\/separations\/([^/]+)$/);
+  if (separationMatch && request.method === "PATCH") {
+    await handleUpdateSeparationRequest(request, response, data, currentUser, separationMatch[1]);
+    return;
+  }
+
+  if (separationMatch && request.method === "DELETE") {
+    if (!["admin", "director", "manager"].includes(currentUser.role)) {
+      sendJson(response, 403, { ok: false, error: "Apenas diretor, gerente ou admin podem excluir separacao." });
+      return;
+    }
+    await handleDeleteSeparationRequest(response, data, separationMatch[1]);
     return;
   }
 
@@ -600,6 +659,161 @@ async function handleCreatePersonalTask(request, response, data, currentUser) {
     personalTask,
     personalTasks: sortPersonalTasks(data.personalTasks),
   });
+}
+
+async function handleCreateSeparationRequest(request, response, data, currentUser) {
+  if (!["seller", "admin", "manager", "director"].includes(currentUser.role)) {
+    sendJson(response, 403, { ok: false, error: "Apenas vendedor, gerente ou diretor podem criar separacao." });
+    return;
+  }
+
+  const body = await readRequestBody(request);
+  const pdfAttachment = Array.isArray(body.separationPdf) ? body.separationPdf[0] : null;
+  if (!pdfAttachment || pdfAttachment.type !== "application/pdf") {
+    sendJson(response, 400, { ok: false, error: "Anexe o PDF do orcamento." });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const requestType = normalizeSeparationType(body.requestType);
+  const desiredDate = normalizeDateInput(body.desiredDate, "");
+  const desiredDeliveryAt = cleanText(body.desiredDeliveryAt, "");
+  const urgentJustification = cleanText(body.urgentJustification, "").slice(0, 1200);
+  const isLeaderTeamDeadline = requestType === "lider_equipe" && desiredDate && daysBetweenIso(todayInBusinessTimezone(), desiredDate) < 3;
+
+  if (isLeaderTeamDeadline && !urgentJustification) {
+    sendJson(response, 400, { ok: false, error: "Prazo menor que 3 dias exige justificativa." });
+    return;
+  }
+
+  if (requestType === "entrega" && desiredDeliveryAt && !isDeliveryAtLeastThreeHours(now, desiredDeliveryAt)) {
+    sendJson(response, 400, { ok: false, error: "Entrega precisa respeitar minimo de 3 horas apos a solicitacao." });
+    return;
+  }
+
+  const parsedPdf = await extractSeparationPdfData(pdfAttachment);
+  const assignedRole = firstSeparationRoleForType(requestType);
+  const separation = {
+    id: createId("separation"),
+    customerName: cleanText(body.customerName, parsedPdf.customerName || "Cliente nao informado").slice(0, 140),
+    store: normalizeUnit(body.store || currentUser.unit),
+    requestType,
+    observation: cleanText(body.observation, parsedPdf.observations || "").slice(0, 3000),
+    priority: normalizePriority(body.priority),
+    desiredDate,
+    desiredDeliveryAt,
+    urgentJustification,
+    leaderApprovalStatus: isLeaderTeamDeadline ? "pendente" : "nao_necessario",
+    status: "aguardando_separacao",
+    previousStatus: "ia_processando",
+    pdfAttachment,
+    invoiceAttachment: null,
+    location: "",
+    deliveryAt: "",
+    assignedRole,
+    assignedUserId: "",
+    sellerId: currentUser.id,
+    sellerName: currentUser.name,
+    sellerDepartment: currentUser.department,
+    sellerUnit: normalizeUnit(currentUser.unit),
+    budgetNumber: parsedPdf.budgetNumber,
+    totalValue: parsedPdf.totalValue,
+    products: parsedPdf.products,
+    aiObservations: parsedPdf.observations,
+    createdAt: now,
+    updatedAt: now,
+    completedAt: "",
+    history: [
+      separationHistoryEntry(currentUser, now, "Solicitacao criada", "", "pdf_recebido", "PDF recebido pelo sistema."),
+      separationHistoryEntry({ name: "IA ATIVA" }, now, "Leitura automatica", "pdf_recebido", "ia_processando", "Extração automática iniciada."),
+      separationHistoryEntry({ name: "IA ATIVA" }, now, "Leitura concluida", "ia_processando", "aguardando_separacao", "Dados salvos na solicitação."),
+    ],
+  };
+
+  data.separationRequests = [separation, ...data.separationRequests];
+  addInternalNotification(data, separation, "Solicitação criada", ["seller", assignedRole, "manager", "director"]);
+  await writeData(data);
+  sendJson(response, 201, {
+    ok: true,
+    separation,
+    separations: visibleSeparationRequests(data.separationRequests, currentUser),
+  });
+}
+
+async function handleUpdateSeparationRequest(request, response, data, currentUser, separationId) {
+  const body = await readRequestBody(request);
+  const index = data.separationRequests.findIndex((item) => item.id === separationId);
+  if (index === -1) {
+    sendJson(response, 404, { ok: false, error: "Solicitacao de separacao nao encontrada." });
+    return;
+  }
+
+  const previous = data.separationRequests[index];
+  if (!canEditSeparationRequest(previous, currentUser)) {
+    sendJson(response, 403, { ok: false, error: "Esta separacao nao esta atribuida ao seu perfil." });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const nextStatus = normalizeSeparationStatus(body.status || previous.status);
+  const invoiceAttachment = Array.isArray(body.separationInvoice) && body.separationInvoice[0]
+    ? body.separationInvoice[0]
+    : previous.invoiceAttachment;
+  const location = cleanText(body.location, previous.location || "").slice(0, 220);
+  const deliveryAt = cleanText(body.deliveryAt, previous.deliveryAt || "");
+  const comment = cleanText(body.comment, "").slice(0, 1200);
+  const leaderApprovalStatus = body.leaderApprovalStatus
+    ? normalizeLeaderApproval(body.leaderApprovalStatus)
+    : previous.leaderApprovalStatus;
+
+  const deliveryValidation = validateSeparationDelivery(previous, nextStatus, {
+    invoiceAttachment,
+    location,
+    deliveryAt,
+  });
+  if (deliveryValidation) {
+    sendJson(response, 400, { ok: false, error: deliveryValidation });
+    return;
+  }
+
+  const updated = {
+    ...previous,
+    status: nextStatus,
+    previousStatus: previous.status,
+    assignedRole: nextSeparationAssignedRole(nextStatus, previous.assignedRole),
+    leaderApprovalStatus,
+    invoiceAttachment,
+    location,
+    deliveryAt,
+    updatedAt: now,
+    completedAt: nextStatus === "finalizado" || nextStatus === "entregue" ? now : previous.completedAt,
+    history: [
+      ...(Array.isArray(previous.history) ? previous.history : []),
+      separationHistoryEntry(currentUser, now, "Atualização", previous.status, nextStatus, comment || "Status atualizado."),
+    ],
+  };
+
+  data.separationRequests[index] = updated;
+  addInternalNotification(data, updated, separationNotificationTitle(nextStatus), ["seller", updated.assignedRole, "manager", "director"]);
+  await writeData(data);
+  sendJson(response, 200, {
+    ok: true,
+    separation: updated,
+    separations: visibleSeparationRequests(data.separationRequests, currentUser),
+  });
+}
+
+async function handleDeleteSeparationRequest(response, data, separationId) {
+  const separationToDelete = data.separationRequests.find((item) => item.id === separationId);
+  const before = data.separationRequests.length;
+  data.separationRequests = data.separationRequests.filter((item) => item.id !== separationId);
+  if (data.separationRequests.length === before) {
+    sendJson(response, 404, { ok: false, error: "Separacao nao encontrada." });
+    return;
+  }
+  await deleteStoredAttachments(separationToDelete);
+  await writeData(data);
+  sendJson(response, 200, { ok: true, separations: sortSeparationRequests(data.separationRequests) });
 }
 
 async function handleCreateCrmOpportunity(request, response, data, currentUser) {
@@ -1484,7 +1698,8 @@ async function handleAttachmentDownload(response, data, currentUser, attachmentI
     findVisibleCrmAttachmentRecord(data.crmOpportunities, currentUser, attachmentId) ||
     findSignatureAttachmentRecord(data.signatureRecords, currentUser, attachmentId) ||
     findVisibleHiringAttachmentRecord(data.hiringRequests, currentUser, attachmentId) ||
-    findVisibleDismissalAttachmentRecord(data.dismissalRequests, currentUser, attachmentId);
+    findVisibleDismissalAttachmentRecord(data.dismissalRequests, currentUser, attachmentId) ||
+    findVisibleSeparationAttachmentRecord(data.separationRequests, currentUser, attachmentId);
 
   if (!match) {
     sendJson(response, 404, { ok: false, error: "Anexo nao encontrado." });
@@ -1719,6 +1934,8 @@ function buildStatePayload(data, currentUser, request = null) {
     signatureRecords: isAdmin ? sortSignatureRecords(data.signatureRecords) : [],
     hiringRequests: visibleHiringRequests(data.hiringRequests, currentUser),
     dismissalRequests: visibleDismissalRequests(data.dismissalRequests, currentUser),
+    separationRequests: visibleSeparationRequests(data.separationRequests, currentUser),
+    notifications: visibleInternalNotifications(data.internalNotifications, currentUser),
     emailMode: isAdmin ? emailModeStatus(request) : null,
   };
 }
@@ -1754,6 +1971,8 @@ async function readData() {
     signatureRecords: Array.isArray(parsed.signatureRecords) ? parsed.signatureRecords : [],
     hiringRequests: Array.isArray(parsed.hiringRequests) ? parsed.hiringRequests : [],
     dismissalRequests: Array.isArray(parsed.dismissalRequests) ? parsed.dismissalRequests : [],
+    separationRequests: Array.isArray(parsed.separationRequests) ? parsed.separationRequests : [],
+    internalNotifications: Array.isArray(parsed.internalNotifications) ? parsed.internalNotifications : [],
   };
   const migrated = await migrateLegacyAttachments(data.requests);
   const migratedHighPriorityDueDates = migrateHighPriorityDueDates(data.requests);
@@ -1887,6 +2106,8 @@ async function ensureDataFile() {
     signatureRecords: [],
     hiringRequests: [],
     dismissalRequests: [],
+    separationRequests: [],
+    internalNotifications: [],
   };
 
   await writeData(initialData);
@@ -2039,7 +2260,17 @@ function normalizePersonalTaskStatus(value) {
 }
 
 function normalizeUserRole(value) {
-  return ["manager", "engineer", "seller"].includes(value) ? value : "manager";
+  return [
+    "director",
+    "manager",
+    "seller",
+    "engineer",
+    "team_lead",
+    "counter_lead",
+    "separator",
+    "checker",
+    "deliverer",
+  ].includes(value) ? value : "manager";
 }
 
 function normalizeRequestType(value, currentUser) {
@@ -2054,6 +2285,19 @@ function normalizeMeetingStatus(value) {
 
 function normalizeCrmStatus(value) {
   return Object.prototype.hasOwnProperty.call(crmStatusLabels, value) ? value : "novo";
+}
+
+function normalizeSeparationType(value) {
+  return ["balcao", "lider_equipe", "entrega"].includes(value) ? value : "balcao";
+}
+
+function normalizeSeparationStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return separationStatusSet.has(normalized) ? normalized : "aguardando_separacao";
+}
+
+function normalizeLeaderApproval(value) {
+  return ["nao_necessario", "pendente", "aprovado", "reprovado"].includes(value) ? value : "pendente";
 }
 
 function normalizeHiringDecision(value) {
@@ -2448,6 +2692,48 @@ async function createSignedPdfAttachment(documentAttachment, signatureDataUrl, s
 
   const pdfBytes = await pdfDoc.save();
   return storeGeneratedPdfAttachment(Buffer.from(pdfBytes), signedPdfName(documentName));
+}
+
+async function extractSeparationPdfData(pdfAttachment) {
+  const source = await attachmentBuffer(pdfAttachment);
+  const raw = source?.buffer ? source.buffer.toString("latin1") : "";
+  const text = raw
+    .replace(/\(([^)]{1,160})\)/g, " $1 ")
+    .replace(/\\n|\\r/g, "\n")
+    .replace(/[^\x20-\x7EÀ-ÿ\n]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return {
+    customerName: matchPdfField(text, ["cliente", "client", "raz[aã]o social"]),
+    budgetNumber: matchPdfField(text, ["or[cç]amento", "orcamento", "pedido", "numero"]),
+    totalValue: matchPdfMoney(text),
+    products: extractPdfProducts(text),
+    observations: matchPdfField(text, ["observa[cç][aã]o", "observacoes", "obs"]),
+  };
+}
+
+function matchPdfField(text, labels) {
+  for (const label of labels) {
+    const pattern = new RegExp(`${label}\\s*[:#-]?\\s*([^|;\\n]{2,90})`, "i");
+    const match = text.match(pattern);
+    if (match?.[1]) return cleanText(match[1], "").slice(0, 120);
+  }
+  return "";
+}
+
+function matchPdfMoney(text) {
+  const matches = String(text || "").match(/R\$\s*\d{1,3}(?:\.\d{3})*(?:,\d{2})/g);
+  return matches?.at(-1) || "";
+}
+
+function extractPdfProducts(text) {
+  const matches = [...String(text || "").matchAll(/(?:cod(?:igo)?\.?\s*)?([A-Z0-9.-]{3,18})\s+(.{8,80}?)\s+(?:qtd\.?\s*)?(\d{1,5})(?:\s|$)/gi)];
+  return matches.slice(0, 80).map((match) => ({
+    code: cleanText(match[1], ""),
+    description: cleanText(match[2], "").slice(0, 120),
+    quantity: cleanText(match[3], "1"),
+  }));
 }
 
 async function imageDocumentToPdf(buffer, mimeType) {
@@ -3013,6 +3299,16 @@ function findVisibleDismissalAttachmentRecord(dismissalRequests, currentUser, at
   return null;
 }
 
+function findVisibleSeparationAttachmentRecord(separationRequests, currentUser, attachmentId) {
+  for (const separation of separationRequests) {
+    if (!canViewSeparationRequest(separation, currentUser)) continue;
+    const attachments = [separation.pdfAttachment, separation.invoiceAttachment].filter(Boolean);
+    const attachment = attachments.find((item) => item.id === attachmentId);
+    if (attachment) return { separation, attachment };
+  }
+  return null;
+}
+
 function canViewCrmOpportunity(opportunity, currentUser) {
   if (currentUser.role === "admin") return true;
   return currentUser.role === "seller" && opportunity.ownerId === currentUser.id;
@@ -3048,6 +3344,8 @@ async function deleteStoredAttachments(taskRequest) {
     ...(taskRequest?.signedAttachment ? [taskRequest.signedAttachment] : []),
     ...(taskRequest?.resumeAttachment ? [taskRequest.resumeAttachment] : []),
     ...(taskRequest?.decisionAttachment ? [taskRequest.decisionAttachment] : []),
+    ...(taskRequest?.pdfAttachment ? [taskRequest.pdfAttachment] : []),
+    ...(taskRequest?.invoiceAttachment ? [taskRequest.invoiceAttachment] : []),
   ];
   const allowedRoot = path.resolve(UPLOAD_DIR);
 
@@ -3069,6 +3367,16 @@ function sortRequests(items) {
     const createdDiff = new Date(right.createdAt || 0) - new Date(left.createdAt || 0);
     if (createdDiff !== 0) return createdDiff;
 
+    return String(right.id || "").localeCompare(String(left.id || ""));
+  });
+}
+
+function sortSeparationRequests(items = []) {
+  return [...items].sort((left, right) => {
+    const priorityDiff = (priorityWeight[left.priority] || 99) - (priorityWeight[right.priority] || 99);
+    if (priorityDiff !== 0) return priorityDiff;
+    const dateDiff = new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0);
+    if (dateDiff !== 0) return dateDiff;
     return String(right.id || "").localeCompare(String(left.id || ""));
   });
 }
@@ -3122,6 +3430,21 @@ function sortHiringRequests(items = []) {
 
 function visibleCrmOpportunities(items = [], currentUser) {
   return sortCrmOpportunities(items.filter((opportunity) => canViewCrmOpportunity(opportunity, currentUser)));
+}
+
+function visibleSeparationRequests(items = [], currentUser) {
+  return sortSeparationRequests(items.filter((separation) => canViewSeparationRequest(separation, currentUser)));
+}
+
+function canViewSeparationRequest(separation, currentUser) {
+  if (["admin", "director", "manager"].includes(currentUser.role)) return true;
+  if (separation.sellerId === currentUser.id) return true;
+  return separation.assignedUserId === currentUser.id || separation.assignedRole === currentUser.role;
+}
+
+function canEditSeparationRequest(separation, currentUser) {
+  if (["admin", "director", "manager"].includes(currentUser.role)) return true;
+  return separation.assignedUserId === currentUser.id || separation.assignedRole === currentUser.role;
 }
 
 function visibleHiringRequests(items = [], currentUser) {
@@ -3210,6 +3533,95 @@ function visibleRequestsForUser(items, currentUser) {
         (!request.assigneeId && currentUser.role === "admin"),
     ),
   );
+}
+
+function firstSeparationRoleForType(type) {
+  if (type === "balcao") return "counter_lead";
+  return "team_lead";
+}
+
+function nextSeparationAssignedRole(status, fallbackRole = "team_lead") {
+  if (["aguardando_separacao", "em_separacao", "com_falta", "aguardando_transferencia"].includes(status)) return "separator";
+  if (["separado", "em_conferencia"].includes(status)) return "checker";
+  if (["conferido", "embalado", "lacrado", "material_pronto", "aguardando_nf", "aguardando_localizacao", "entrega_programada"].includes(status)) return "team_lead";
+  if (["em_rota", "entregue"].includes(status)) return "deliverer";
+  return fallbackRole;
+}
+
+function separationHistoryEntry(user, createdAt, action, previousStatus, nextStatus, comment) {
+  return {
+    id: createId("history"),
+    userId: user?.id || "",
+    userName: cleanText(user?.name, "Sistema"),
+    createdAt,
+    action,
+    previousStatus,
+    nextStatus,
+    comment,
+  };
+}
+
+function separationNotificationTitle(status) {
+  return {
+    separado: "Material separado",
+    conferido: "Material conferido",
+    com_falta: "Falta identificada",
+    entrega_programada: "Entrega programada",
+    entregue: "Entrega concluída",
+  }[status] || "Separação atualizada";
+}
+
+function validateSeparationDelivery(previous, nextStatus, payload) {
+  if (nextStatus !== "entrega_programada" && nextStatus !== "em_rota") return "";
+  if (!["conferido", "embalado", "lacrado", "material_pronto", "aguardando_nf", "aguardando_localizacao", "entrega_programada"].includes(previous.status)) {
+    return "Para liberar entrega, o material precisa estar conferido.";
+  }
+  if (!["lacrado", "material_pronto", "aguardando_nf", "aguardando_localizacao", "entrega_programada"].includes(previous.status)) {
+    return "Para liberar entrega, o material precisa estar lacrado.";
+  }
+  if (!payload.invoiceAttachment) return "Anexe a NF antes de programar entrega.";
+  if (!payload.location) return "Informe a localização antes de programar entrega.";
+  if (!payload.deliveryAt) return "Informe horário válido de entrega.";
+  if (!isDeliveryAtLeastThreeHours(previous.createdAt, payload.deliveryAt)) {
+    return "Entrega precisa respeitar mínimo de 3 horas após a solicitação.";
+  }
+  return "";
+}
+
+function isDeliveryAtLeastThreeHours(createdAt, deliveryAt) {
+  const created = new Date(createdAt);
+  const delivery = new Date(deliveryAt);
+  if (Number.isNaN(created.getTime()) || Number.isNaN(delivery.getTime())) return false;
+  return delivery.getTime() - created.getTime() >= 3 * 60 * 60 * 1000;
+}
+
+function daysBetweenIso(startIso, endIso) {
+  const start = new Date(`${startIso}T12:00:00`);
+  const end = new Date(`${endIso}T12:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 999;
+  return Math.floor((end - start) / (24 * 60 * 60 * 1000));
+}
+
+function addInternalNotification(data, separation, title, targetRoles = []) {
+  data.internalNotifications = Array.isArray(data.internalNotifications) ? data.internalNotifications : [];
+  data.internalNotifications.unshift({
+    id: createId("notification"),
+    title,
+    separationId: separation.id,
+    targetRoles,
+    sellerId: separation.sellerId,
+    createdAt: new Date().toISOString(),
+    readBy: [],
+  });
+  data.internalNotifications = data.internalNotifications.slice(0, 500);
+}
+
+function visibleInternalNotifications(items = [], currentUser) {
+  return items.filter((notification) => {
+    if (["admin", "director", "manager"].includes(currentUser.role)) return true;
+    if (notification.sellerId === currentUser.id) return true;
+    return Array.isArray(notification.targetRoles) && notification.targetRoles.includes(currentUser.role);
+  }).slice(0, 80);
 }
 
 function canRespondToRequest(request, currentUser) {
@@ -3452,6 +3864,8 @@ async function readMultipartBody(request, contentType) {
     signatureDocument: await storeUploadedAttachments(files.signatureDocument || []),
     hiringResume: await storeUploadedAttachments(files.hiringResume || []),
     dismissalDocument: await storeUploadedAttachments(files.dismissalDocument || []),
+    separationPdf: await storeUploadedAttachments(files.separationPdf || []),
+    separationInvoice: await storeUploadedAttachments(files.separationInvoice || []),
   };
 }
 

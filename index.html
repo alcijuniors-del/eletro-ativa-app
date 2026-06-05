@@ -143,6 +143,10 @@
               <span aria-hidden="true">$</span>
               CRM Vendas
             </button>
+            <button class="ghost-button" id="separation-view-button" type="button">
+              <span aria-hidden="true">S</span>
+              Separação
+            </button>
             <button class="ghost-button" id="hirings-view-button" type="button">
               <span aria-hidden="true">H</span>
               Contratações
@@ -289,6 +293,99 @@
               <div class="empty-state hidden" id="signature-empty-state">
                 <strong>Nenhum documento assinado</strong>
                 <span>Ao salvar a primeira assinatura, o documento assinado aparece aqui para abrir ou baixar.</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="separation-panel hidden" id="separation-panel" aria-label="Separação">
+          <div class="manager-submit-header">
+            <div>
+              <p class="eyebrow">Operação de estoque</p>
+              <h2 id="separation-title">Separação</h2>
+            </div>
+            <span class="status-pill status-andamento" id="separation-count">0 pedidos</span>
+          </div>
+
+          <section class="crm-metrics separation-metrics" aria-label="Indicadores de separação">
+            <article class="metric"><span class="metric-label">Em separação</span><strong id="sep-metric-separating">0</strong></article>
+            <article class="metric"><span class="metric-label">Conferidos</span><strong id="sep-metric-checked">0</strong></article>
+            <article class="metric"><span class="metric-label">Atrasados</span><strong id="sep-metric-late">0</strong></article>
+            <article class="metric"><span class="metric-label">Com falta</span><strong id="sep-metric-missing">0</strong></article>
+            <article class="metric"><span class="metric-label">Entregas</span><strong id="sep-metric-deliveries">0</strong></article>
+            <article class="metric"><span class="metric-label">Tempo médio</span><strong id="sep-metric-average">0h</strong></article>
+          </section>
+
+          <div class="separation-layout">
+            <form class="request-form separation-form" id="separation-form">
+              <div class="form-grid">
+                <label class="form-wide file-field">
+                  Upload PDF do orçamento
+                  <input name="separationPdf" type="file" accept="application/pdf" required />
+                  <span class="input-hint">Anexe o PDF do orçamento para leitura automática.</span>
+                </label>
+                <label>
+                  Cliente
+                  <input name="customerName" type="text" placeholder="Preenchido pela IA se existir no PDF" />
+                </label>
+                <label>
+                  Loja
+                  <select name="store">
+                    <option value="SPZ">SPZ</option>
+                    <option value="CNP">CNP</option>
+                    <option value="CORP">CORP</option>
+                  </select>
+                </label>
+                <label>
+                  Tipo de solicitação
+                  <select name="requestType" id="separation-request-type">
+                    <option value="balcao">Balcão</option>
+                    <option value="lider_equipe">Líder de Equipe</option>
+                    <option value="entrega">Entrega</option>
+                  </select>
+                </label>
+                <label>
+                  Prioridade
+                  <select name="priority">
+                    <option value="media">Média</option>
+                    <option value="alta">Alta</option>
+                    <option value="baixa">Baixa</option>
+                  </select>
+                </label>
+                <label>
+                  Prazo desejado
+                  <input name="desiredDate" type="date" />
+                </label>
+                <label>
+                  Horário de entrega
+                  <input name="desiredDeliveryAt" type="datetime-local" />
+                </label>
+                <label class="form-wide">
+                  Observação
+                  <textarea name="observation" rows="3" placeholder="Detalhes para estoque, conferência ou entrega."></textarea>
+                </label>
+                <label class="form-wide">
+                  Justificativa para prazo menor que 3 dias
+                  <textarea name="urgentJustification" rows="2" placeholder="Obrigatória para Líder de Equipe com prazo menor que 3 dias."></textarea>
+                </label>
+              </div>
+              <div class="manager-card-actions">
+                <button class="primary-button" type="submit">
+                  <span aria-hidden="true">+</span>
+                  Enviar solicitação
+                </button>
+              </div>
+            </form>
+
+            <div class="separation-list-panel">
+              <div class="panel-heading">
+                <h3>Pedidos</h3>
+                <span id="separation-summary">Fluxo vendedor, estoque, conferência e entrega</span>
+              </div>
+              <div class="separation-list" id="separation-list"></div>
+              <div class="empty-state hidden" id="separation-empty-state">
+                <strong>Nenhum pedido de separação</strong>
+                <span>As solicitações aparecem aqui com status, IA e histórico.</span>
               </div>
             </div>
           </div>
@@ -1089,9 +1186,15 @@
           <label>
             Perfil
             <select name="role" required>
+              <option value="director">Diretor</option>
               <option value="manager">Gerente</option>
               <option value="seller">Vendedor</option>
               <option value="engineer">Engenheiro</option>
+              <option value="team_lead">Líder de Equipe</option>
+              <option value="counter_lead">Líder Balconista</option>
+              <option value="separator">Separador</option>
+              <option value="checker">Conferente</option>
+              <option value="deliverer">Entregador</option>
             </select>
           </label>
           <label>
