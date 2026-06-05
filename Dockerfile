@@ -10,6 +10,7 @@ ENV DATA_DIR=/app/data
 COPY package.json ./
 COPY server.js app.js index.html styles.css ./
 COPY assets ./assets
+COPY vendor ./vendor
 
 RUN mkdir -p /app/data
 
