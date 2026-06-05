@@ -860,9 +860,7 @@ textarea:focus {
   min-height: 168px;
   border: 1px solid rgba(195, 108, 255, 0.42);
   border-radius: 8px;
-  background:
-    linear-gradient(135deg, rgba(155, 57, 255, 0.14), rgba(0, 0, 0, 0.18)),
-    #120d19;
+  background: #fff;
   touch-action: none;
 }
 
@@ -902,7 +900,7 @@ textarea:focus {
   min-height: 116px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #120d19;
+  background: #fff;
   object-fit: contain;
   padding: 10px;
 }

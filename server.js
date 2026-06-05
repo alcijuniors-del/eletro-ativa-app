@@ -7,6 +7,7 @@ const zlib = require("zlib");
 const { URL } = require("url");
 const { promisify } = require("util");
 const { execFile } = require("child_process");
+const { PDFDocument, StandardFonts, rgb } = require("./vendor/pdf-lib.min.js");
 
 loadLocalEnv();
 
@@ -584,12 +585,14 @@ async function handleCreateSignature(request, response, data, currentUser) {
   const signerName = cleanText(body.signerName, "ALCI JR.").slice(0, 80);
   const documentName = cleanText(body.documentName, documentAttachment.name || "Documento assinado").slice(0, 160);
   const signatureDataUrl = sanitizeSignatureDataUrl(body.signatureDataUrl);
+  const signedAttachment = await createSignedPdfAttachment(documentAttachment, signatureDataUrl, signerName, documentName);
 
   const signatureRecord = {
     id: createId("signature"),
     signerName,
     documentName,
     documentAttachment,
+    signedAttachment,
     signatureDataUrl,
     signedBy: currentUser.id,
     signedByName: currentUser.name,
@@ -2094,6 +2097,131 @@ function sanitizeSignatureDataUrl(value = "") {
   return dataUrl;
 }
 
+async function createSignedPdfAttachment(documentAttachment, signatureDataUrl, signerName, documentName) {
+  const source = await attachmentBuffer(documentAttachment);
+  const signature = decodeDataUrl(signatureDataUrl);
+  if (!source || !signature) {
+    const error = new Error("Nao foi possivel preparar o documento assinado.");
+    error.status = 400;
+    throw error;
+  }
+
+  let pdfDoc;
+  const sourceType = String(documentAttachment.type || source.mimeType || "").toLowerCase();
+  if (sourceType === "application/pdf") {
+    pdfDoc = await PDFDocument.load(source.buffer);
+  } else {
+    pdfDoc = await imageDocumentToPdf(source.buffer, sourceType);
+  }
+
+  const page = pdfDoc.getPages().at(-1);
+  const pngSignature = await pdfDoc.embedPng(signature.buffer);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const { width, height } = page.getSize();
+  const stampWidth = Math.min(190, width * 0.34);
+  const stampHeight = stampWidth * (pngSignature.height / pngSignature.width);
+  const margin = 38;
+  const stampX = Math.max(margin, width - stampWidth - margin);
+  const stampY = margin + 22;
+  const label = `Assinado eletronicamente por ${signerName}`;
+  const dateLabel = formatDateTime(new Date().toISOString());
+
+  page.drawText(label, {
+    x: stampX,
+    y: stampY + stampHeight + 12,
+    size: 9,
+    font,
+    color: rgb(0, 0, 0),
+  });
+  page.drawText(dateLabel, {
+    x: stampX,
+    y: stampY + stampHeight,
+    size: 8,
+    font,
+    color: rgb(0, 0, 0),
+  });
+  page.drawImage(pngSignature, {
+    x: stampX,
+    y: stampY,
+    width: stampWidth,
+    height: stampHeight,
+  });
+  page.drawLine({
+    start: { x: stampX, y: stampY - 4 },
+    end: { x: stampX + stampWidth, y: stampY - 4 },
+    thickness: 0.8,
+    color: rgb(0, 0, 0),
+  });
+
+  const pdfBytes = await pdfDoc.save();
+  return storeGeneratedPdfAttachment(Buffer.from(pdfBytes), signedPdfName(documentName));
+}
+
+async function imageDocumentToPdf(buffer, mimeType) {
+  const pdfDoc = await PDFDocument.create();
+  let image;
+  if (mimeType === "image/png") {
+    image = await pdfDoc.embedPng(buffer);
+  } else if (["image/jpeg", "image/jpg"].includes(mimeType)) {
+    image = await pdfDoc.embedJpg(buffer);
+  } else {
+    const error = new Error("Para assinar imagem, use PNG ou JPG.");
+    error.status = 400;
+    throw error;
+  }
+
+  const maxWidth = 595.28;
+  const maxHeight = 841.89;
+  const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+  const width = image.width * scale;
+  const height = image.height * scale;
+  const page = pdfDoc.addPage([maxWidth, maxHeight]);
+  page.drawImage(image, {
+    x: (maxWidth - width) / 2,
+    y: (maxHeight - height) / 2,
+    width,
+    height,
+  });
+  return pdfDoc;
+}
+
+async function attachmentBuffer(attachment) {
+  if (attachment?.storagePath) {
+    const filePath = path.resolve(DATA_DIR, attachment.storagePath);
+    const allowedRoot = path.resolve(UPLOAD_DIR);
+    if (filePath !== allowedRoot && !filePath.startsWith(`${allowedRoot}${path.sep}`)) return null;
+    const buffer = await fs.readFile(filePath).catch(() => null);
+    return buffer ? { buffer, mimeType: attachment.type } : null;
+  }
+
+  if (attachment?.dataUrl) {
+    return decodeDataUrl(attachment.dataUrl);
+  }
+
+  return null;
+}
+
+async function storeGeneratedPdfAttachment(buffer, displayName) {
+  const id = createId("attachment");
+  const fileName = `${id}.pdf`;
+  await fs.mkdir(UPLOAD_DIR, { recursive: true });
+  await fs.writeFile(path.join(UPLOAD_DIR, fileName), buffer);
+  return {
+    id,
+    name: displayName,
+    type: "application/pdf",
+    size: buffer.length,
+    storagePath: `uploads/${fileName}`,
+    url: `/api/attachments/${encodeURIComponent(id)}`,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function signedPdfName(documentName) {
+  const baseName = cleanText(documentName, "documento").replace(/\.[a-z0-9]+$/i, "").slice(0, 90);
+  return `${baseName || "documento"} - assinado.pdf`;
+}
+
 async function storeUploadedAttachments(files = []) {
   if (!Array.isArray(files)) return [];
   if (files.length > MAX_ATTACHMENTS_PER_FIELD) {
@@ -2353,8 +2481,9 @@ function findSignatureAttachmentRecord(signatureRecords, currentUser, attachment
   if (currentUser.role !== "admin") return null;
 
   for (const signature of signatureRecords) {
-    const attachment = signature.documentAttachment;
-    if (attachment?.id === attachmentId) return { signature, attachment };
+    const attachments = [signature.documentAttachment, signature.signedAttachment].filter(Boolean);
+    const attachment = attachments.find((item) => item.id === attachmentId);
+    if (attachment) return { signature, attachment };
   }
 
   return null;
@@ -2387,6 +2516,7 @@ async function deleteStoredAttachments(taskRequest) {
     ...(Array.isArray(taskRequest?.attachments) ? taskRequest.attachments : []),
     ...(Array.isArray(taskRequest?.responseAttachments) ? taskRequest.responseAttachments : []),
     ...(taskRequest?.documentAttachment ? [taskRequest.documentAttachment] : []),
+    ...(taskRequest?.signedAttachment ? [taskRequest.signedAttachment] : []),
   ];
   const allowedRoot = path.resolve(UPLOAD_DIR);
 

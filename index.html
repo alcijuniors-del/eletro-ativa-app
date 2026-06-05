@@ -248,14 +248,14 @@
                 <label class="form-wide file-field">
                   Documento para assinar
                   <input name="signatureDocument" type="file" accept="image/*,application/pdf" required />
-                  <span class="input-hint">Anexe o PDF ou imagem do documento original. Até 4 MB para PDF.</span>
+                  <span class="input-hint">Anexe o PDF ou imagem do documento original. O sistema gera o próprio arquivo assinado.</span>
                 </label>
               </div>
 
               <div class="signature-pad-card">
                 <div class="panel-heading">
                   <h3>Assinatura</h3>
-                  <span>Desenhe no quadro ou use a assinatura automática ALCI JR.</span>
+                  <span>Assinatura preta aplicada no próprio documento.</span>
                 </div>
                 <canvas class="signature-pad" id="signature-pad" width="760" height="240" aria-label="Quadro para assinatura"></canvas>
                 <div class="signature-actions">
@@ -280,7 +280,7 @@
               <div class="signature-list" id="signature-list"></div>
               <div class="empty-state hidden" id="signature-empty-state">
                 <strong>Nenhum documento assinado</strong>
-                <span>Ao salvar a primeira assinatura, ela aparece aqui com comprovante em PDF.</span>
+                <span>Ao salvar a primeira assinatura, o documento assinado aparece aqui para abrir ou baixar.</span>
               </div>
             </div>
           </div>

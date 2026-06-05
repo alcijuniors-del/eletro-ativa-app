@@ -2153,6 +2153,7 @@ function findAttachment(attachmentId) {
 
   for (const signature of signatureRecords) {
     if (signature.documentAttachment?.id === attachmentId) return signature.documentAttachment;
+    if (signature.signedAttachment?.id === attachmentId) return signature.signedAttachment;
   }
 
   return null;
@@ -3140,7 +3141,7 @@ function setupSignaturePad() {
   context.lineWidth = 4;
   context.lineCap = "round";
   context.lineJoin = "round";
-  context.strokeStyle = "#fbf7ff";
+  context.strokeStyle = "#000000";
   drawTypedSignature();
 
   const start = (event) => {
@@ -3194,12 +3195,12 @@ function drawTypedSignature() {
   if (!canvas) return;
   const context = canvas.getContext("2d");
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "#fbf7ff";
+  context.fillStyle = "#000000";
   context.font = "700 76px Georgia, serif";
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText("ALCI JR.", canvas.width / 2, canvas.height / 2 + 2);
-  context.strokeStyle = "rgba(255, 122, 24, 0.72)";
+  context.strokeStyle = "#000000";
   context.lineWidth = 3;
   context.beginPath();
   context.moveTo(170, 170);
@@ -3258,11 +3259,11 @@ function renderSignatures() {
       <div class="signature-preview-row">
         <img class="signature-preview" src="${escapeHtml(record.signatureDataUrl)}" alt="Assinatura ${escapeHtml(record.signerName)}" />
         <div>
-          ${attachmentMarkup(record.documentAttachment)}
+          ${attachmentsMarkup(record.signedAttachment ? [record.signedAttachment] : [], "Documento assinado")}
+          ${attachmentsMarkup(record.documentAttachment ? [record.documentAttachment] : [], "Documento original")}
         </div>
       </div>
       <div class="manager-card-actions">
-        <button class="ghost-button compact-button" type="button" data-print-signature="${escapeHtml(record.id)}">Comprovante PDF</button>
         <button class="ghost-button compact-button danger-action" type="button" data-delete-signature="${escapeHtml(record.id)}">Excluir</button>
       </div>
     `;
