@@ -8,6 +8,8 @@ ENV PORT=4173
 ENV DATA_DIR=/app/data
 
 COPY package.json ./
+RUN npm install --omit=dev
+
 COPY server.js app.js index.html styles.css ./
 COPY assets ./assets
 COPY vendor ./vendor

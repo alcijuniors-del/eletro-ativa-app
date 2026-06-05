@@ -8,6 +8,12 @@ const { URL } = require("url");
 const { promisify } = require("util");
 const { execFile } = require("child_process");
 const { PDFDocument, StandardFonts, rgb } = require("./vendor/pdf-lib.min.js");
+let pdfParse = null;
+try {
+  pdfParse = require("pdf-parse");
+} catch {
+  pdfParse = null;
+}
 
 loadLocalEnv();
 
@@ -2728,7 +2734,8 @@ async function createSignedPdfAttachment(documentAttachment, signatureDataUrl, s
 async function extractSeparationPdfData(pdfAttachment) {
   const source = await attachmentBuffer(pdfAttachment);
   const buffer = source?.buffer || Buffer.alloc(0);
-  const text = extractPdfTextFromBuffer(buffer);
+  const parsedText = await extractPdfTextWithLibrary(buffer);
+  const text = normalizePdfText(`${parsedText} ${extractPdfTextFromBuffer(buffer)}`);
 
   return {
     customerName: matchPdfField(text, ["cliente", "client", "raz[aã]o social", "nome"]),
@@ -2736,6 +2743,17 @@ async function extractSeparationPdfData(pdfAttachment) {
     totalValue: matchPdfMoney(text),
     observations: matchPdfField(text, ["observa[cç][aã]o", "observacoes", "obs"]),
   };
+}
+
+async function extractPdfTextWithLibrary(buffer) {
+  if (!pdfParse || !Buffer.isBuffer(buffer) || buffer.length === 0) return "";
+  try {
+    const parsed = await pdfParse(buffer);
+    return normalizePdfText(parsed?.text || "");
+  } catch (error) {
+    console.warn("Falha na leitura do PDF com pdf-parse:", error.message);
+    return "";
+  }
 }
 
 function extractPdfTextFromBuffer(buffer) {
